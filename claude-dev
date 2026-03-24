@@ -231,6 +231,17 @@ case "$COMMAND" in
       echo "  Example: claude-dev $COMMAND my-feature"
       exit 1
     fi
+    # Validate session name: must start with letter/digit, then [a-zA-Z0-9._-]
+    if [[ ! "$SESSION_NAME" =~ ^[a-zA-Z0-9][a-zA-Z0-9._-]*$ ]]; then
+      echo "ERROR: Invalid session name '$SESSION_NAME'."
+      echo ""
+      echo "  Names must start with a letter or digit and contain only"
+      echo "  letters, digits, hyphens, underscores, and dots."
+      echo ""
+      echo "  Usage: claude-dev $COMMAND <session-name> [options]"
+      echo "  Example: claude-dev $COMMAND my-feature"
+      exit 1
+    fi
     shift
     ;;
 esac
