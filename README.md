@@ -157,7 +157,15 @@ host-config/
 
 ### Anthropic Config
 
-The container mounts your host `~/.claude.json` read-only. API keys, base URL (e.g., LLM proxy), and auth tokens are inherited automatically.
+The container mounts your host `~/.claude.json` and `~/.claude/settings.json` read-only. API keys, base URL (e.g., LLM proxy), auth tokens, and model config are inherited automatically — no `.env` configuration needed.
+
+To override the host config, uncomment and set these in `.env`:
+
+```
+ANTHROPIC_BASE_URL=http://my-proxy:8080/v1
+ANTHROPIC_AUTH_TOKEN=your-token
+ANTHROPIC_API_KEY=sk-ant-xxx
+```
 
 ## CLI Reference
 
