@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git *)",
+      "Bash(gh *)",
+      "Bash(jira-* *)",
+      "Bash(curl *)",
+      "Bash(jq *)",
+      "Bash(python3 *)",
+      "Bash(yq *)",
+      "Bash(make *)",
+      "Bash(npm *)",
+      "Bash(npx *)",
+      "Read",
+      "Edit",
+      "Write",
+      "Glob",
+      "Grep"
+    ]
+  }
+}
