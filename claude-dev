@@ -1,0 +1,155 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ── claude-dev — CLI wrapper for claude-devcontainer ─────────────────────────
+
+COMPOSE="docker compose"
+CONTAINER="claude-dev"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+cd "$SCRIPT_DIR"
+
+usage() {
+  cat <<'EOF'
+Usage: claude-dev <command> [options]
+
+Commands:
+  build                              Build the container image
+  start [--mode=develop]             Start the container
+  attach [--skip-permissions]        Attach to running container with Claude Code
+  run --mode=pr-review --pr=<ref>    Run a one-shot PR review
+  pr-submit                          Post the last dry-run review to GitHub
+  status                             Show session status
+  logs                               Tail session output log
+  stop                               Stop the container
+  clean                              Stop and remove volumes
+
+PR Review options:
+  --pr=<number|org/repo#number>      PR to review (required)
+  --no-dry-run                       Post review directly to GitHub
+
+Examples:
+  claude-dev build
+  claude-dev start
+  claude-dev attach
+  claude-dev start --mode=pr-review --pr=123
+  claude-dev run --mode=pr-review --pr=myorg/myrepo#456
+  claude-dev run --mode=pr-review --pr=123 --no-dry-run
+  claude-dev pr-submit
+  claude-dev status
+  claude-dev stop
+EOF
+}
+
+# ── Parse arguments ──────────────────────────────────────────────────────────
+COMMAND="${1:-}"
+shift || true
+
+MODE=""
+PR_REF=""
+DRY_RUN="true"
+SKIP_PERMISSIONS="false"
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --mode=*)        MODE="${1#--mode=}" ;;
+    --pr=*)          PR_REF="${1#--pr=}" ;;
+    --no-dry-run)    DRY_RUN="false" ;;
+    --skip-permissions) SKIP_PERMISSIONS="true" ;;
+    --help|-h)       usage; exit 0 ;;
+    *)               echo "Unknown option: $1"; usage; exit 1 ;;
+  esac
+  shift
+done
+
+# ── Commands ─────────────────────────────────────────────────────────────────
+
+case "$COMMAND" in
+  build)
+    $COMPOSE build
+    ;;
+
+  start)
+    MODE="${MODE:-develop}"
+    export MODE
+    if [ -n "$PR_REF" ]; then
+      export PR_NUMBER="$PR_REF"
+    fi
+    export DRY_RUN
+    export SKIP_PERMISSIONS
+    $COMPOSE up -d
+    echo ""
+    if [ "$MODE" = "develop" ]; then
+      echo "Container started in develop mode."
+      echo "Attach with:  ./claude-dev attach"
+    else
+      echo "Container started in $MODE mode."
+      echo "Check status: ./claude-dev status"
+      echo "View logs:    ./claude-dev logs"
+    fi
+    ;;
+
+  attach)
+    CLAUDE_ARGS=""
+    if [ "$SKIP_PERMISSIONS" = "true" ]; then
+      CLAUDE_ARGS="--dangerously-skip-permissions"
+    fi
+    docker exec -it "$CONTAINER" claude $CLAUDE_ARGS
+    ;;
+
+  run)
+    MODE="${MODE:-pr-review}"
+    if [ "$MODE" = "pr-review" ] && [ -z "$PR_REF" ]; then
+      echo "ERROR: --pr=<ref> is required for pr-review mode."
+      exit 1
+    fi
+    export MODE PR_NUMBER="$PR_REF" DRY_RUN SKIP_PERMISSIONS
+    $COMPOSE run --rm "$CONTAINER"
+    ;;
+
+  pr-submit)
+    REVIEW_FILE="/workspace/.claude-session/review.md"
+    # Read PR number from session status
+    PR_NUMBER=$(docker exec "$CONTAINER" jq -r '.pr_number // empty' /workspace/.claude-session/status.json 2>/dev/null || true)
+
+    if [ -z "$PR_NUMBER" ]; then
+      echo "ERROR: No PR number found in session. Run a PR review first."
+      exit 1
+    fi
+
+    echo "Posting review to PR #$PR_NUMBER..."
+    docker exec "$CONTAINER" sh -c "gh pr review $PR_NUMBER --comment --body \"\$(cat $REVIEW_FILE)\""
+    echo "Review posted."
+    ;;
+
+  status)
+    docker exec "$CONTAINER" /scripts/monitor.sh
+    ;;
+
+  logs)
+    docker exec "$CONTAINER" tail -f /workspace/.claude-session/output.log
+    ;;
+
+  stop)
+    $COMPOSE down
+    ;;
+
+  clean)
+    $COMPOSE down -v
+    ;;
+
+  help|--help|-h)
+    usage
+    ;;
+
+  "")
+    usage
+    exit 1
+    ;;
+
+  *)
+    echo "Unknown command: $COMMAND"
+    usage
+    exit 1
+    ;;
+esac

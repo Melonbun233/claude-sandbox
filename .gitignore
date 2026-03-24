@@ -1,0 +1,28 @@
+# Environment
+.env
+*.env.local
+
+# Workspace (cloned repos live here)
+workspace/
+
+# Host config (user-specific, not committed)
+host-config/
+
+# Session data
+.claude-session/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Docker
+.docker/
+
+# Claude Code
+.claude/

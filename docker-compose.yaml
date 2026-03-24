@@ -1,0 +1,44 @@
+services:
+  claude-dev:
+    build: .
+    container_name: claude-dev
+    environment:
+      - MODE=${MODE:-develop}
+      # GitHub (add more token vars as needed, referenced by workspace.yaml)
+      - GH_TOKEN
+      - GH_ENTERPRISE_TOKEN
+      - GIT_USER_NAME
+      - GIT_USER_EMAIL
+      # Jira
+      - JIRA_URL
+      - JIRA_USERNAME
+      - JIRA_API_TOKEN
+      - JIRA_AUTH_TYPE
+      # PR Review
+      - PR_NUMBER
+      - PR_REPO
+      - DRY_RUN
+      # Develop
+      - SKIP_PERMISSIONS
+      # Network / proxy (optional overrides)
+      - HTTPS_PROXY
+      - HTTP_PROXY
+      - NO_PROXY
+      - NODE_EXTRA_CA_CERTS
+    volumes:
+      # Host Anthropic config (API keys, base URL, auth tokens)
+      - ${HOME}/.claude.json:/home/claude/.claude.json:ro
+      # Host-provided CLAUDE.md, agents, skills, settings
+      - ./host-config:/host-config:ro
+      # Persistent workspace for cloned repos
+      - workspace:/workspace
+      # Config files (workspace.yaml, mode configs)
+      - ./config:/etc/claude-dev/config:ro
+    stdin_open: true
+    tty: true
+    mem_limit: 4g
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  workspace:
