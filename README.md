@@ -117,12 +117,40 @@ github_servers:
     token_env: GH_ENTERPRISE_TOKEN
 ```
 
-Set the corresponding tokens in `.env`:
+Token env var names are flexible — use any name, just match it in `.env`:
 
 ```
 GH_TOKEN=ghp_xxx
 GH_ENTERPRISE_TOKEN=ghp_yyy
 ```
+
+All variables from `.env` are automatically passed to the container.
+
+### SSL / TLS for GitHub Enterprise
+
+Enterprise servers with self-signed or corporate CA certificates have two options:
+
+**Option 1: Skip SSL verification**
+
+```yaml
+github_servers:
+  - host: github.enterprise.corp.com
+    token_env: GH_ENTERPRISE_TOKEN
+    ssl_verify: false
+```
+
+**Option 2: Custom CA certificate**
+
+Place your CA cert in `./certs/` and reference it in `workspace.yaml`:
+
+```yaml
+github_servers:
+  - host: github.enterprise.corp.com
+    token_env: GH_ENTERPRISE_TOKEN
+    ca_cert: corp-root-ca.pem
+```
+
+The cert file is installed into the container's system CA store at startup, making it trusted for git, gh CLI, curl, and Node.js.
 
 ### Jira (Read-Only)
 

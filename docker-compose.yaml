@@ -5,33 +5,18 @@ services:
     container_name: ${CONTAINER_NAME:-claude-dev}
     labels:
       com.claude-dev.session: "true"
+    env_file:
+      - path: .env
+        required: false
     environment:
+      # CLI-driven vars (set by claude-dev wrapper, not .env)
       - MODE=${MODE:-develop}
       - SESSION_NAME=${SESSION_NAME:-default}
       - CONTAINER_NAME=${CONTAINER_NAME:-claude-dev}
-      # Anthropic / LLM Proxy
-      - ANTHROPIC_BASE_URL
-      - ANTHROPIC_AUTH_TOKEN
-      - ANTHROPIC_API_KEY
-      # GitHub (add more token vars as needed, referenced by workspace.yaml)
-      - GH_TOKEN
-      - GH_ENTERPRISE_TOKEN
-      # Jira
-      - JIRA_URL
-      - JIRA_USERNAME
-      - JIRA_API_TOKEN
-      - JIRA_AUTH_TYPE
-      # PR Review
       - PR_NUMBER
       - PR_REPO
       - DRY_RUN
-      # Develop
       - SKIP_PERMISSIONS
-      # Network / proxy (optional overrides)
-      - HTTPS_PROXY
-      - HTTP_PROXY
-      - NO_PROXY
-      - NODE_EXTRA_CA_CERTS
     volumes:
       # Host Anthropic config (staged, then copied+modified by entrypoint)
       - ${HOME}/.claude.json:/tmp/.claude.json.host:ro
@@ -43,6 +28,8 @@ services:
       - workspace:/workspace
       # Config files (workspace.yaml, mode configs)
       - ./config:/etc/claude-dev/config:ro
+      # Custom CA certificates (optional)
+      - ./certs:/etc/claude-dev/certs:ro
     stdin_open: true
     tty: true
     mem_limit: 4g
