@@ -2,6 +2,9 @@
 .env
 *.env.local
 
+# Workspace config (user-specific, only examples committed)
+config/workspace.yaml
+
 # Workspace (cloned repos live here)
 workspace/
 
