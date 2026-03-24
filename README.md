@@ -108,7 +108,7 @@ host-config/
 
 ### Anthropic Config
 
-The container mounts your host `~/.claude.json` read-only. API keys, base URL (e.g., HAI proxy), and auth tokens are inherited automatically.
+The container mounts your host `~/.claude.json` read-only. API keys, base URL (e.g., LLM proxy), and auth tokens are inherited automatically.
 
 ## CLI Reference
 
