@@ -10,6 +10,7 @@ Containerized Claude Code environment (`ubuntu:24.04`) for running `--dangerousl
 
 ```bash
 ./claude-dev build                          # docker compose build
+./claude-dev launch <name>                  # start + attach in one step
 ./claude-dev start <name>                   # start named session (required)
 ./claude-dev attach <name>                  # attach interactively
 ./claude-dev stop <name>                    # stop (preserves state)

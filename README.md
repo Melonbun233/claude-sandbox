@@ -22,11 +22,8 @@ cp config/workspace.yaml.example config/workspace.yaml
 # 3. Build the container
 ./claude-dev build
 
-# 4. Start a named session
-./claude-dev start my-feature
-
-# 5. Attach to Claude Code
-./claude-dev attach my-feature
+# 4. Launch a session (start + attach in one step)
+./claude-dev launch my-feature
 ```
 
 ## Built-in Skills & Plugins
@@ -172,6 +169,7 @@ ANTHROPIC_API_KEY=sk-ant-xxx
 | Command | Description |
 |---------|-------------|
 | `./claude-dev build` | Build the container image |
+| `./claude-dev launch <name>` | Start + attach in one step (prompts if session exists) |
 | `./claude-dev start <name>` | Start a new session (or restart a stopped one) |
 | `./claude-dev attach <name>` | Attach to a running session |
 | `./claude-dev run <name> --mode=pr-review --pr=REF` | Run one-shot PR review |

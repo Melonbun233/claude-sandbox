@@ -16,6 +16,7 @@ A session name is required for all commands (except build, list, help).
 
 Commands:
   build                                Build the container image
+  launch <name> [options]              Start + attach in one step
   start <name> [--mode=develop]        Start a new session
   attach <name> [--skip-permissions]   Attach to a running session
   run <name> --mode=pr-review --pr=REF Run a one-shot PR review
@@ -42,6 +43,24 @@ or modifying the Dockerfile.
 
 Examples:
   claude-dev build
+EOF
+      ;;
+    launch)
+      cat <<'EOF'
+Usage: claude-dev launch <session-name> [options]
+
+Start a session and immediately attach to Claude Code. If the session
+is already running, you'll be prompted to re-attach or replace it.
+
+Options:
+  --mode=<mode>         Mode to run: develop (default) or pr-review
+  --skip-permissions    Enable --dangerously-skip-permissions
+  --pr=<ref>            PR number for pr-review mode
+
+Examples:
+  claude-dev launch my-feature
+  claude-dev launch my-feature --skip-permissions
+  claude-dev launch review-123 --mode=pr-review --pr=123
 EOF
       ;;
     start)
@@ -256,6 +275,77 @@ container_running() {
 case "$COMMAND" in
   build)
     $COMPOSE build
+    ;;
+
+  launch)
+    MODE="${MODE:-develop}"
+    export MODE
+
+    CLAUDE_ARGS=""
+    if [ "$SKIP_PERMISSIONS" = "true" ]; then
+      CLAUDE_ARGS="--dangerously-skip-permissions"
+    fi
+
+    # If already running, prompt the user
+    if container_running; then
+      echo "Session '$SESSION_NAME' is already running."
+      echo ""
+      echo "  [r] Re-attach to existing session"
+      echo "  [d] Delete and create a new session"
+      echo "  [q] Quit"
+      echo ""
+      read -rp "Choice [r/d/q]: " choice
+      case "$choice" in
+        r|R)
+          exec docker exec -it "$CONTAINER_NAME" claude $CLAUDE_ARGS
+          ;;
+        d|D)
+          echo ":: Deleting session '$SESSION_NAME'..."
+          docker stop "$CONTAINER_NAME" >/dev/null
+          docker rm "$CONTAINER_NAME" >/dev/null
+          if docker volume inspect "$VOLUME_NAME" &>/dev/null; then
+            docker volume rm "$VOLUME_NAME" >/dev/null
+          fi
+          # fall through to create new session
+          ;;
+        *)
+          exit 0
+          ;;
+      esac
+    fi
+
+    # Restart stopped container or create new one
+    if container_exists; then
+      echo ":: Restarting stopped session '$SESSION_NAME'..."
+      docker start "$CONTAINER_NAME"
+    else
+      echo ":: Creating session '$SESSION_NAME' ($MODE mode)..."
+      if [ -n "$PR_REF" ]; then
+        export PR_NUMBER="$PR_REF"
+      fi
+      export DRY_RUN SKIP_PERMISSIONS
+      $COMPOSE up -d
+    fi
+
+    # Wait for container to be ready
+    echo ":: Waiting for container to be ready..."
+    for i in $(seq 1 30); do
+      if container_running; then
+        break
+      fi
+      sleep 1
+    done
+    if ! container_running; then
+      echo "ERROR: Container did not start within 30 seconds."
+      echo "  Check logs: docker logs $CONTAINER_NAME"
+      exit 1
+    fi
+
+    # Give entrypoint a moment to initialize
+    sleep 2
+
+    echo ":: Attaching to session '$SESSION_NAME'..."
+    exec docker exec -it "$CONTAINER_NAME" claude $CLAUDE_ARGS
     ;;
 
   start)
