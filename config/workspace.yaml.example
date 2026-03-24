@@ -2,6 +2,10 @@
 # List of GitHub servers to authenticate against.
 # Each entry defines a hostname, the env var holding its PAT,
 # and optional git identity (user_name/user_email) for commits.
+#
+# SSL options (for GitHub Enterprise with corporate/self-signed certs):
+#   ssl_verify: false     — skip TLS certificate verification
+#   ca_cert: corp-ca.pem  — use a custom CA cert from ./certs/ directory
 github_servers:
   - host: github.com
     token_env: GH_TOKEN
@@ -13,6 +17,9 @@ github_servers:
   #   token_env: GH_ENTERPRISE_TOKEN
   #   user_name: Jane Doe
   #   user_email: jane.doe@corp.com
+  #   ssl_verify: false          # skip TLS verification
+  #   # OR provide a custom CA certificate (placed in ./certs/):
+  #   ca_cert: corp-root-ca.pem
 
 # ── Repos to Clone ──────────────────────────────────────────────────────────
 # Each repo is cloned to /workspace/<target> on container start.

@@ -24,6 +24,9 @@ esac
 
 # ── Setup scripts ────────────────────────────────────────────────────────────
 
+echo ":: Installing custom CA certificates..."
+/scripts/setup-certs.sh || echo "WARN: CA cert setup had issues (continuing)"
+
 # Copy host Anthropic config and pre-accept /workspace trust.
 # Host file is mounted read-only at /tmp/.claude.json.host; we copy and patch it.
 echo ":: Setting up Anthropic config..."
