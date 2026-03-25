@@ -2,28 +2,16 @@
 set -euo pipefail
 
 # ── Banner ───────────────────────────────────────────────────────────────────
-MODE="${MODE:-develop}"
 SESSION_NAME="${SESSION_NAME:-default}"
 echo "┌──────────────────────────────────────────────┐"
 echo "│  claude-devcontainer                         │"
 echo "│  Session: $(printf '%-34s' "$SESSION_NAME")│"
-echo "│  Mode:    $(printf '%-34s' "$MODE")│"
 echo "│  Time:    $(printf '%-34s' "$(date -u +%Y-%m-%dT%H:%M:%SZ)")│"
 echo "└──────────────────────────────────────────────┘"
 echo ""
 
 # Clear stale readiness sentinel from a previous run
 rm -f /workspace/.claude-session/ready
-
-# ── Validate mode ────────────────────────────────────────────────────────────
-case "$MODE" in
-  develop|pr-review)
-    ;;
-  *)
-    echo "ERROR: Unknown mode '$MODE'. Supported: develop, pr-review"
-    exit 1
-    ;;
-esac
 
 # ── Setup scripts ────────────────────────────────────────────────────────────
 
@@ -81,10 +69,17 @@ echo ":: Configuring Claude Code..."
 SESSION_DIR="/workspace/.claude-session"
 mkdir -p "$SESSION_DIR"
 
+# Determine session type
+if [ -n "${ONE_SHOT_PROMPT:-}" ]; then
+  SESSION_TYPE="one-shot"
+else
+  SESSION_TYPE="develop"
+fi
+
 cat > "$SESSION_DIR/status.json" <<EOF
 {
   "session_name": "$SESSION_NAME",
-  "mode": "$MODE",
+  "type": "$SESSION_TYPE",
   "started_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
   "container_id": "$(hostname)"
 }
@@ -93,11 +88,25 @@ EOF
 touch "$SESSION_DIR/output.log"
 
 echo ""
-echo ":: Setup complete. Launching mode: $MODE"
+echo ":: Setup complete."
 echo ""
 
 # Signal readiness to the host CLI
 touch /workspace/.claude-session/ready
 
-# ── Dispatch to mode script ──────────────────────────────────────────────────
-exec /scripts/modes/${MODE}.sh
+# ── Dispatch ──────────────────────────────────────────────────────────────
+if [ -n "${ONE_SHOT_PROMPT:-}" ]; then
+  echo ":: Running one-shot prompt..."
+  # One-shot always requires --dangerously-skip-permissions (non-interactive claude -p)
+  OUTPUT=$(claude -p --dangerously-skip-permissions "$ONE_SHOT_PROMPT" 2>&1) || {
+    echo "ERROR: Claude execution failed"
+    echo "$OUTPUT"
+    exit 1
+  }
+  echo "$OUTPUT" > "$SESSION_DIR/output.md"
+  echo "$OUTPUT"
+  echo ":: Output saved to $SESSION_DIR/output.md"
+else
+  echo ":: Develop mode — waiting for attach..."
+  exec sleep infinity
+fi
