@@ -72,7 +72,7 @@ COPY --chown=claude:claude jira-cli/  /usr/local/lib/jira-cli/
 COPY --chown=claude:claude claude-config/ /etc/claude-dev/claude-config/
 COPY --chown=claude:claude templates/ /etc/claude-dev/templates/
 
-RUN chmod +x /scripts/*.sh /scripts/modes/*.sh \
+RUN chmod +x /scripts/*.sh \
     && for f in /usr/local/lib/jira-cli/*.sh; do \
          name="$(basename "$f" .sh)"; \
          ln -sf "$f" "/usr/local/bin/$name"; \
