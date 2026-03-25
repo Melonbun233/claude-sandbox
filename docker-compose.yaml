@@ -10,13 +10,9 @@ services:
         required: false
     environment:
       # CLI-driven vars (set by claude-dev wrapper, not .env)
-      - MODE=${MODE:-develop}
       - SESSION_NAME=${SESSION_NAME:-default}
       - CONTAINER_NAME=${CONTAINER_NAME:-claude-dev}
-      - PR_NUMBER
-      - PR_REPO
-      - DRY_RUN
-      - SKIP_PERMISSIONS
+      - ONE_SHOT_PROMPT
     volumes:
       # Host Anthropic config (staged, then copied+modified by entrypoint)
       - ${HOME}/.claude.json:/tmp/.claude.json.host:ro
@@ -26,7 +22,7 @@ services:
       - ./host-config:/host-config:ro
       # Persistent workspace for cloned repos
       - workspace:/workspace
-      # Config files (workspace.yaml, mode configs)
+      # Config files (workspace.yaml)
       - ./config:/etc/claude-dev/config:ro
       # Custom CA certificates (optional)
       - ./certs:/etc/claude-dev/certs:ro
