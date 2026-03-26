@@ -63,7 +63,7 @@ for i in $(seq 0 $((REPO_COUNT - 1))); do
     if [[ "$CURRENT_URL" == *"x-access-token:"* ]]; then
       AUTH_METHOD="${HOST_AUTH_METHODS[$REPO_HOST]:-https}"
       if [ "$AUTH_METHOD" = "ssh" ]; then
-        REPO_PATH=$(echo "$URL" | sed -E 's|https?://[^/]+/(.*)|\1|; s|\.git$||')
+        REPO_PATH=$(echo "$URL" | sed -E 's|https?://[^/]+/(.*)|\1|; s|/$||; s|\.git$||')
         SSH_PORT="${HOST_SSH_PORTS[$REPO_HOST]:-22}"
         if [ "$SSH_PORT" != "22" ]; then
           NEW_URL="ssh://git@${REPO_HOST}:${SSH_PORT}/${REPO_PATH}.git"
@@ -88,7 +88,7 @@ for i in $(seq 0 $((REPO_COUNT - 1))); do
 
     if [ "$AUTH_METHOD" = "ssh" ]; then
       # Convert https://host/org/repo → git@host:org/repo.git
-      REPO_PATH=$(echo "$URL" | sed -E 's|https?://[^/]+/(.*)|\1|; s|\.git$||')
+      REPO_PATH=$(echo "$URL" | sed -E 's|https?://[^/]+/(.*)|\1|; s|/$||; s|\.git$||')
       SSH_PORT="${HOST_SSH_PORTS[$REPO_HOST]:-22}"
       if [ "$SSH_PORT" != "22" ]; then
         CLONE_URL="ssh://git@${REPO_HOST}:${SSH_PORT}/${REPO_PATH}.git"
@@ -97,7 +97,7 @@ for i in $(seq 0 $((REPO_COUNT - 1))); do
       fi
     else
       # HTTPS — no token in URL, credential store handles auth
-      CLONE_URL="$URL"
+      CLONE_URL="${URL%/}"
     fi
 
     if [ -n "$BRANCH" ]; then
