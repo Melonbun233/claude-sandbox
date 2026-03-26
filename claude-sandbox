@@ -379,7 +379,7 @@ generate_compose_override() {
         echo "      - ${HOME}/.gitconfig:/home/claude/.gitconfig.host:ro"
       fi
       if [ "$SSH_AGENT" = "true" ]; then
-        echo "      - ${SSH_AUTH_SOCK}:/run/ssh-agent.sock"
+        echo "      - \"${SSH_AUTH_SOCK}:/run/ssh-agent.sock\""
         NEED_ENV="true"
       fi
       if [ "$NEED_ENV" = "true" ]; then
