@@ -17,8 +17,8 @@ A session name is required for all commands (except build, list, help).
 Commands:
   build                                Build the container image
   launch <name> [options]              Start + attach in one step
-  start <name> [--skip-permissions]    Start a new session
-  attach <name> [--skip-permissions]   Attach to a running session
+  start <name> [--dangerously-skip-permissions]    Start a new session
+  attach <name> [--dangerously-skip-permissions]   Attach to a running session
   run <name> --prompt=<text> [options] Run a one-shot prompt
   status <name>                        Show session status
   logs <name>                          Tail session output log
@@ -52,12 +52,12 @@ Start a session and immediately attach to Claude Code. If the session
 is already running, you'll be prompted to re-attach or replace it.
 
 Options:
-  --skip-permissions    Enable --dangerously-skip-permissions
+  --dangerously-skip-permissions    Run Claude without tool confirmation prompts
   --rm                  Auto-remove session when Claude exits
 
 Examples:
   claude-sandbox launch my-feature
-  claude-sandbox launch my-feature --skip-permissions
+  claude-sandbox launch my-feature --dangerously-skip-permissions
   claude-sandbox launch my-feature --rm
 EOF
       ;;
@@ -69,14 +69,14 @@ Start a new session or restart a stopped one. Each session gets its own
 container and persistent workspace volume.
 
 Options:
-  --skip-permissions    Enable --dangerously-skip-permissions
+  --dangerously-skip-permissions    Run Claude without tool confirmation prompts
 
 If the session was previously stopped, it is restarted with its existing
 workspace data intact.
 
 Examples:
   claude-sandbox start my-feature
-  claude-sandbox start my-feature --skip-permissions
+  claude-sandbox start my-feature --dangerously-skip-permissions
 EOF
       ;;
     attach)
@@ -86,13 +86,13 @@ Usage: claude-sandbox attach <session-name> [options]
 Attach to a running session interactively with Claude Code.
 
 Options:
-  --skip-permissions    Enable --dangerously-skip-permissions
+  --dangerously-skip-permissions    Run Claude without tool confirmation prompts
 
 The session must be running. If stopped, use 'start' to restart it first.
 
 Examples:
   claude-sandbox attach my-feature
-  claude-sandbox attach my-feature --skip-permissions
+  claude-sandbox attach my-feature --dangerously-skip-permissions
 EOF
       ;;
     run)
@@ -257,7 +257,7 @@ while [ $# -gt 0 ]; do
     --post)          POST_REVIEW="true" ;;
     --keep)          KEEP_SESSION="true" ;;
     --rm)            AUTO_REMOVE="true" ;;
-    --skip-permissions) SKIP_PERMISSIONS="true" ;;
+    --dangerously-skip-permissions) SKIP_PERMISSIONS="true" ;;
     --help|-h)       usage; exit 0 ;;
     *)               echo "Unknown option: $1"; usage; exit 1 ;;
   esac
