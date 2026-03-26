@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-Containerized Claude Code environment (`ubuntu:24.04`) for running `--dangerously-skip-permissions` "safely", with GitHub Enterprise multi-server auth, read-only Jira integration, and pre-installed skills (gstack + superpowers).
+Isolated, containerized Claude Code environment (`ubuntu:24.04`) for DevOps, developers, and CI/CD pipelines. Provides credential isolation, GitHub Enterprise multi-server auth, read-only Jira integration, and pre-installed skills (gstack + superpowers).
 
 ## Build & Run
 
@@ -78,7 +78,7 @@ Per-repo config (`/host-config/repos/<name>/`) is copied to `/workspace/<name>/.
 ### One-Shot vs Develop
 
 - **develop** (default): `sleep infinity`, user attaches with `docker exec -it`
-- **one-shot** (`run` command): runs `claude -p --dangerously-skip-permissions` with the provided prompt, saves output to `output.md`, exits
+- **one-shot** (`run` command): automatically uses `--dangerously-skip-permissions` (required for non-interactive `claude -p`). Prefer read-only prompts (PR reviews, code analysis) unless comfortable with unrestricted changes. Output saved to `output.md`.
 
 ## Key Files
 

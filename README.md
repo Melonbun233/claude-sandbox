@@ -1,6 +1,6 @@
 # claude-sandbox
 
-Containerized environment for running Claude Code with `--dangerously-skip-permissions` "safely", integrated with GitHub Enterprise, Jira, and pre-installed AI development skills.
+Isolated, containerized environment for Claude Code — built for DevOps, developers, and CI/CD pipelines. Ships with GitHub Enterprise multi-server auth, read-only Jira integration, credential isolation, and pre-installed AI development skills.
 
 ## Prerequisites
 
@@ -70,11 +70,11 @@ Interactive mode — you attach to the container and use Claude Code directly wi
 ```bash
 ./claude-sandbox start my-feature
 ./claude-sandbox attach my-feature
-# Optionally with --dangerously-skip-permissions:
-./claude-sandbox attach my-feature --skip-permissions
+# Optionally enable autonomous mode:
+./claude-sandbox attach my-feature --dangerously-skip-permissions
 ```
 
-> **Note:** The `--skip-permissions` flag passes `--dangerously-skip-permissions` to Claude Code, which allows Claude to execute tools (shell commands, file writes, etc.) without asking for confirmation. Only use this in a containerized environment where you are comfortable with Claude making unrestricted changes.
+> **Note:** The `--dangerously-skip-permissions` flag allows Claude to execute tools (shell commands, file writes, etc.) without asking for confirmation each time. The containerized environment provides isolation so these operations are confined to the session's workspace volume and cannot affect your host machine.
 
 ### PR Review
 
@@ -90,6 +90,8 @@ One-shot mode — reviews a PR using gstack's `/review` skill and outputs commen
 # Post a saved dry-run review:
 ./claude-sandbox pr-submit pr-review-123
 ```
+
+> **Note:** One-shot mode automatically uses `--dangerously-skip-permissions` because non-interactive `claude -p` requires it — there is no opt-out. Prefer read-only prompts (PR reviews, code analysis) unless you are comfortable with Claude making unrestricted changes in the container.
 
 ### Multiple Sessions
 
