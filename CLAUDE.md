@@ -104,4 +104,5 @@ Per-repo config (`/host-config/repos/<name>/`) is copied to `/workspace/<name>/.
 - Host proxy access: `host.docker.internal:host-gateway` in compose + `localhost` → `host.docker.internal` rewrite in entrypoint
 - Container runs as non-root `claude` (UID 1000) with passwordless sudo
 - Anthropic config inherited from host mounts; `.env` values are optional overrides
-- Push to both remotes on commit: `git push origin main && git push github main`
+- Use git worktrees for new features and code changes; open PRs to land on the default branch
+- When starting a new feature without a specified name, suggest a descriptive branch name and let the user choose
