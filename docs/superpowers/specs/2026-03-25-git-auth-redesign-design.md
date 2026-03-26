@@ -25,7 +25,7 @@ The current git auth setup has two concrete failures:
 
 ## Approach: CLI-Driven Mounts (Approach B)
 
-The host CLI (`claude-dev`) reads workspace.yaml and passes conditional volume mounts via `-v` flags. Container scripts handle credential setup. No compose file templating needed.
+The host CLI (`claude-dev`) reads workspace.yaml and generates a `docker-compose.override.yaml` at runtime with conditional volume mounts. Container scripts handle credential setup.
 
 ## Design
 
@@ -49,7 +49,8 @@ github_servers:
 
   - host: github.enterprise.corp.com
     auth_method: ssh          # use SSH keys for this server
-    ssh_key: ~/.ssh/id_ed25519_work   # optional: specific key for this server
+    ssh_key: id_ed25519_work  # optional: filename in ~/.ssh/ for this server
+    # ssh_port: 22            # optional: non-standard SSH port (default: 22)
     user_name: Jane Doe
     user_email: jane.doe@corp.com
     ssl_verify: false
@@ -58,42 +59,64 @@ github_servers:
 **Rules:**
 - `git_config:` section is optional. If absent, no SSH/gitconfig mounts.
 - `auth_method` defaults to `https` (backward compatible).
-- `token_env` required when `auth_method: https`.
-- `ssh_key` optional — if omitted, SSH uses default key selection from `~/.ssh/config` or ssh-agent.
+- `token_env` required when `auth_method: https`. Optional when `auth_method: ssh` — if provided, used for `gh` CLI auth only (so `gh pr`, `gh issue` work).
+- `ssh_key` is a filename relative to the host's `~/.ssh/` directory (e.g., `id_ed25519_work`). The CLI validates the file exists at `~/.ssh/<ssh_key>` before starting the container.
 - `mount_ssh: true` is required for any server using `auth_method: ssh` (validated at startup).
 
 ### 2. CLI Changes (`claude-dev`)
 
-Before calling `docker compose up`, the CLI parses `git_config:` from `config/workspace.yaml`:
+Before calling `docker compose up`, the CLI parses `git_config:` from `config/workspace.yaml` and generates a `docker-compose.override.yaml` with conditional volume mounts:
 
-- If `mount_ssh: true`: add `-v ${HOME}/.ssh:/home/claude/.ssh:ro`
-- If `mount_gitconfig: true`: add `-v ${HOME}/.gitconfig:/home/claude/.gitconfig.host:ro` (staged as `.host`, copied by entrypoint so per-server overrides can be layered)
-- Mounts passed via `--volume` flags on the `docker compose` command
+```yaml
+# Generated at runtime by claude-dev, gitignored
+services:
+  claude-dev:
+    volumes:
+      - ${HOME}/.ssh:/home/claude/.ssh:ro
+      - ${HOME}/.gitconfig:/home/claude/.gitconfig.host:ro
+```
 
-**Validation:** If any server has `auth_method: ssh` but `mount_ssh` is not `true`, warn and abort before starting the container.
+- If `mount_ssh: true`: include the `~/.ssh` mount
+- If `mount_gitconfig: true`: include the `~/.gitconfig` mount (staged as `.host`, copied by `setup-git.sh` so per-server overrides can be layered)
+- The override file is written to the project directory and picked up automatically by `docker compose` (which merges `docker-compose.yaml` + `docker-compose.override.yaml`)
+- The override file is added to `.gitignore`
+
+**Validation (before generating override / starting container):**
+- If any server has `auth_method: ssh` but `mount_ssh` is not `true`: warn and abort
+- If `mount_ssh: true` but `~/.ssh/` does not exist on host: warn and abort
+- If a server specifies `ssh_key: <name>` but `~/.ssh/<name>` does not exist: warn and abort
+- If `mount_gitconfig: true` but `~/.gitconfig` does not exist on host: warn (continue — not fatal)
 
 All existing CLI commands unchanged. Session naming, volume management, compose project naming unchanged.
 
 ### 3. Container Script: `setup-git.sh` (replaces `setup-github.sh`)
 
+**Execution order:** `setup-git.sh` runs before `clone-repos.sh` in `entrypoint.sh` (same slot as the current `setup-github.sh`). All credential and SSH configuration must complete before any cloning begins.
+
+#### Host gitconfig (runs first):
+- If `~/.gitconfig.host` exists (mounted): copy to `~/.gitconfig`
+- Per-server identity overrides are applied per-repo by `clone-repos.sh` after cloning (same as today)
+- If not mounted: no global gitconfig, per-server identity still works
+- **Limitation:** host `~/.gitconfig` `[include]` directives pointing to files outside `~/.gitconfig` itself will not resolve inside the container.
+
 #### HTTPS servers (`auth_method: https`):
 1. Write PAT to `~/.git-credentials`: `https://x-access-token:{TOKEN}@{HOST}`
-2. Configure `git config --global credential.helper store`
-3. Chain `gh` as secondary: `git config --global --add credential.helper '!gh auth git-credential'`
+2. Configure `git config --global credential.helper store` (queries `~/.git-credentials` first)
+3. Chain `gh` as secondary: `git config --global --add credential.helper '!gh auth git-credential'` (appended, so `store` has priority; `gh` is fallback)
 4. Authenticate `gh` CLI per server (for `gh pr`, `gh issue`, etc.)
 
+Note: tokens are written fresh to `~/.git-credentials` on every container start, so stale credentials are not a concern.
+
 #### SSH servers (`auth_method: ssh`):
-1. If `ssh_key` specified: write `~/.ssh/config` entry (`Host`, `HostName`, `IdentityFile`, `IdentitiesOnly yes`)
+1. If `ssh_key` specified: append `~/.ssh/config` entry (`Host`, `HostName`, `IdentityFile /home/claude/.ssh/<key>`, `IdentitiesOnly yes`). The mounted `~/.ssh/` is read-only, so we write to a copy or append to the config.
 2. If no `ssh_key`: rely on default key selection from mounted `~/.ssh/config` or ssh-agent
-3. Add host to `~/.ssh/known_hosts` via `ssh-keyscan`
+3. Add host to `~/.ssh/known_hosts` via `ssh-keyscan -H {HOST}`. Error handling: if `ssh-keyscan` fails (timeout, unreachable), log a warning and continue — the clone will fail later with a clear SSH error. For non-standard SSH ports, add optional `ssh_port` field to workspace.yaml server config.
 4. If the server also has a `token_env`: authenticate `gh` CLI for that host (so `gh pr` works even over SSH)
 
-#### Host gitconfig:
-- If `~/.gitconfig.host` exists (mounted): copy to `~/.gitconfig`, then layer per-server identity overrides per-repo
-- If not mounted: no global gitconfig, per-server identity still works
+**Out of scope for this iteration:** SSH agent forwarding (`SSH_AUTH_SOCK`). Users relying on ssh-agent or hardware keys (YubiKey) must use key files for now.
 
 #### SSL config:
-Unchanged — `ssl_verify: false` sets `git http.<host>.sslVerify false`, `ca_cert` handled by `setup-certs.sh`.
+Unchanged — `ssl_verify: false` sets `git http.<host>.sslVerify false` (applies to HTTPS git operations and `gh` CLI API calls only; silently irrelevant for SSH git operations). `ca_cert` handled by `setup-certs.sh`.
 
 ### 4. Clone Script Changes (`clone-repos.sh`)
 
@@ -110,6 +133,8 @@ URL construction switches based on `auth_method`:
 - Subsequent `git pull/push/fetch` works natively — credentials are configured globally.
 
 **Unchanged:** per-repo branch scoping, per-repo git identity, error handling, `safe.directory` marking, already-cloned repos get `git pull --ff-only`.
+
+**Existing cloned repos with token-injected URLs:** On restart, if a repo already exists and its remote URL contains embedded credentials (`x-access-token:...@`), `setup-git.sh` or `clone-repos.sh` rewrites the remote URL to the clean form (plain HTTPS or SSH) so the credential store / SSH keys are used instead. This handles migration of sessions created before this change.
 
 ### 5. Backward Compatibility
 
@@ -129,10 +154,26 @@ Fully backward compatible. No breaking changes.
 
 | File | Change |
 |------|--------|
-| `config/workspace.yaml.example` | Add `git_config:` section, `auth_method`/`ssh_key` examples |
-| `claude-dev` | Parse `git_config`, add conditional `-v` mounts, validation |
-| `scripts/setup-github.sh` → `scripts/setup-git.sh` | Rename, add SSH setup + git-credential-store |
-| `scripts/clone-repos.sh` | URL construction based on `auth_method` |
+| `config/workspace.yaml.example` | Add `git_config:` section, `auth_method`/`ssh_key`/`ssh_port` examples |
+| `claude-dev` | Parse `git_config`, generate `docker-compose.override.yaml`, validation |
+| `docker-compose.override.yaml` | Generated at runtime (gitignored), conditional SSH/gitconfig mounts |
+| `.gitignore` | Add `docker-compose.override.yaml` |
+| `scripts/setup-github.sh` → `scripts/setup-git.sh` | Rename, add SSH setup + git-credential-store + gitconfig copy |
+| `scripts/clone-repos.sh` | URL construction based on `auth_method`, rewrite stale remote URLs |
 | `scripts/entrypoint.sh` | Call `setup-git.sh` instead of `setup-github.sh` |
-| `docker-compose.yaml` | No changes |
-| `.env.example` | No changes |
+| `docker-compose.yaml` | No changes (override file handles conditional mounts) |
+| `.env.example` | Add comment: tokens only needed for HTTPS servers |
+
+**No Dockerfile change needed:** `openssh-client` is already installed (provides `ssh`, `ssh-keyscan`, `ssh-agent`).
+
+## Verification Plan
+
+Manual tests to confirm the feature works (no automated test suite):
+
+1. **HTTPS clone + push:** Configure a server with `auth_method: https`, clone a private repo, run `git push` inside the container — verify credential store is used (no token in remote URL)
+2. **SSH clone + push:** Configure a server with `auth_method: ssh`, `mount_ssh: true`, clone a private repo via SSH, run `git push` — verify SSH key is used
+3. **Per-server SSH key:** Configure `ssh_key: id_ed25519_work` for one server, verify the correct key is selected
+4. **`gh` CLI on SSH server:** Configure an SSH server with `token_env`, verify `gh pr list` works
+5. **Backward compatibility:** Use an existing workspace.yaml with no `git_config:` section, verify everything works as before
+6. **Session restart migration:** Start a session with old token-injected URLs, restart with new config, verify remote URLs are rewritten
+7. **Validation errors:** Test `auth_method: ssh` without `mount_ssh: true`, verify CLI aborts with clear error
