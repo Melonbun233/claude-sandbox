@@ -1,29 +1,40 @@
+# ── Git Configuration (optional) ─────────────────────────────────────────────
+# Control how the container accesses git. Both options are opt-in.
+# git_config:
+#   mount_ssh: true           # mount host ~/.ssh/ read-only into container
+#   mount_gitconfig: true     # mount host ~/.gitconfig read-only into container
+
 # ── GitHub Servers ────────────────────────────────────────────────────────────
-# List of GitHub servers to authenticate against.
-# Each entry defines a hostname, the env var holding its PAT,
-# and optional git identity (user_name/user_email) for commits.
+# Each entry defines a hostname and how to authenticate.
+#
+# auth_method: https (default) — uses PAT via git-credential-store
+# auth_method: ssh — uses SSH keys (requires git_config.mount_ssh: true)
 #
 # SSL options (for GitHub Enterprise with corporate/self-signed certs):
 #   ssl_verify: false     — skip TLS certificate verification
 #   ca_cert: corp-ca.pem  — use a custom CA cert from ./certs/ directory
 github_servers:
   - host: github.com
-    token_env: GH_TOKEN
+    auth_method: https         # ssh | https (default: https)
+    token_env: GH_TOKEN        # required for auth_method: https
     # user_name: Jane Doe
     # user_email: jane@personal.com
 
-  # Add enterprise servers as needed:
+  # SSH example for enterprise server:
   # - host: github.enterprise.corp.com
-  #   token_env: GH_ENTERPRISE_TOKEN
+  #   auth_method: ssh
+  #   ssh_key: id_ed25519_work   # optional: filename in ~/.ssh/
+  #   ssh_port: 22               # optional: non-standard SSH port
+  #   token_env: GH_ENTERPRISE_TOKEN  # optional for SSH: enables gh CLI
   #   user_name: Jane Doe
   #   user_email: jane.doe@corp.com
-  #   ssl_verify: false          # skip TLS verification
-  #   # OR provide a custom CA certificate (placed in ./certs/):
-  #   ca_cert: corp-root-ca.pem
+  #   ssl_verify: false
 
 # ── Repos to Clone ──────────────────────────────────────────────────────────
 # Each repo is cloned to /workspace/<target> on container start.
 # The URL host must match one of the github_servers above for auth.
+# Always use HTTPS URLs here — SSH conversion is automatic when
+# the matching server has auth_method: ssh.
 #
 # The 'branch' field is optional:
 #   - Set: only that branch is cloned (--single-branch), saving time/bandwidth
