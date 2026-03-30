@@ -302,11 +302,17 @@ print_session_exit_message() {
 
 # ── Generate docker-compose.override.yaml from workspace.yaml git_config ────
 generate_compose_override() {
-  local CONFIG_FILE="$SCRIPT_DIR/config/workspace.yaml"
+  local CONFIG_FILE=""
+  if [ -f "$SCRIPT_DIR/config/sandbox.yaml" ]; then
+    CONFIG_FILE="$SCRIPT_DIR/config/sandbox.yaml"
+  elif [ -f "$SCRIPT_DIR/config/workspace.yaml" ]; then
+    echo "NOTE: workspace.yaml is deprecated. Rename to sandbox.yaml and remove the repos[] section."
+    CONFIG_FILE="$SCRIPT_DIR/config/workspace.yaml"
+  fi
   local OVERRIDE_FILE="$SCRIPT_DIR/docker-compose.override.yaml"
 
-  # If no workspace.yaml, remove any stale override and return
-  if [ ! -f "$CONFIG_FILE" ]; then
+  # If no sandbox.yaml, remove any stale override and return
+  if [ -z "$CONFIG_FILE" ]; then
     rm -f "$OVERRIDE_FILE"
     return 0
   fi
