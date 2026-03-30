@@ -200,7 +200,7 @@ shift || true
 
 # Commands that don't need a session name
 case "$COMMAND" in
-  build|list|"")
+  build|list|install|"")
     # handled below without session name
     ;;
   help|--help|-h)
@@ -249,6 +249,8 @@ PROMPT_ARG=""
 POST_REVIEW="false"
 KEEP_SESSION="false"
 AUTO_REMOVE="false"
+SOURCE_DIRS=()
+DEFAULT_WORKDIR=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -259,10 +261,52 @@ while [ $# -gt 0 ]; do
     --rm)            AUTO_REMOVE="true" ;;
     --dangerously-skip-permissions) SKIP_PERMISSIONS="true" ;;
     --help|-h)       usage; exit 0 ;;
+    --dir=*)         SOURCE_DIRS+=("${1#--dir=}") ;;
+    --dir)           shift; [ -n "${1:-}" ] || { echo "ERROR: --dir requires a value"; exit 1; }; SOURCE_DIRS+=("$1") ;;
     *)               echo "Unknown option: $1"; usage; exit 1 ;;
   esac
   shift
 done
+
+# ── Resolve source directories ───────────────────────────────────────────────
+# Only for commands that create sessions (launch, start, run)
+if [[ "$COMMAND" =~ ^(launch|start|run)$ ]]; then
+  # Default to CWD if no --dir flags
+  if [ ${#SOURCE_DIRS[@]} -eq 0 ]; then
+    SOURCE_DIRS=("$(pwd)")
+  fi
+
+  # Resolve to absolute paths and validate
+  RESOLVED_DIRS=()
+  BASENAMES=()
+  for dir in "${SOURCE_DIRS[@]}"; do
+    abs_dir="$(cd "$dir" 2>/dev/null && pwd)" || {
+      echo "ERROR: Directory does not exist: $dir"
+      exit 1
+    }
+    if [ -z "$(ls -A "$abs_dir" 2>/dev/null)" ]; then
+      echo "ERROR: Directory is empty: $abs_dir"
+      exit 1
+    fi
+    bname=$(basename "$abs_dir")
+    # Check for basename collisions
+    for existing in "${BASENAMES[@]+"${BASENAMES[@]}"}"; do
+      if [ "$existing" = "$bname" ]; then
+        echo "ERROR: Basename collision — two directories named '$bname'."
+        echo "  Rename one of them, or use a parent directory."
+        exit 1
+      fi
+    done
+    BASENAMES+=("$bname")
+    RESOLVED_DIRS+=("${abs_dir}:${bname}")
+  done
+  SOURCE_DIRS=("${RESOLVED_DIRS[@]}")
+
+  # Compute DEFAULT_WORKDIR (first dir's basename)
+  first_bname="${SOURCE_DIRS[0]##*:}"
+  DEFAULT_WORKDIR="/workspace/${first_bname}"
+  export DEFAULT_WORKDIR
+fi
 
 # ── Helper: check if container exists / is running ──────────────────────────
 container_exists() {
