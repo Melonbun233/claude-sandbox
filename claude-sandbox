@@ -533,7 +533,6 @@ copy_source_dirs() {
   fi
 
   # Wait for entrypoint to signal it's ready for copy
-  echo ":: Waiting for container to be ready for copy..."
   local COPY_READY_TIMEOUT=60
   for i in $(seq 1 "$COPY_READY_TIMEOUT"); do
     if docker exec "$CONTAINER_NAME" test -f /workspace/.claude-session/copy-ready 2>/dev/null; then
@@ -551,6 +550,8 @@ copy_source_dirs() {
     return 1
   fi
 
+  echo ":: Copying source directories into container..."
+
   # docker cp each source directory
   for entry in "${SOURCE_DIRS[@]}"; do
     local host_path="${entry%%:*}"
@@ -567,9 +568,9 @@ copy_source_dirs() {
     }
   done
 
-  # Fix ownership and signal completion
-  docker exec "$CONTAINER_NAME" bash -c \
-    'chown -R claude:claude /workspace/ 2>/dev/null; touch /workspace/.claude-session/copy-done'
+  # Fix ownership (docker cp creates files as root) and signal completion
+  docker exec -u root "$CONTAINER_NAME" chown -R claude:claude /workspace/
+  docker exec "$CONTAINER_NAME" touch /workspace/.claude-session/copy-done
   echo "  Source directories copied."
 }
 
@@ -679,7 +680,6 @@ case "$COMMAND" in
     fi
 
     # Wait for container to be running
-    echo ":: Waiting for container to start..."
     for i in $(seq 1 30); do
       if container_running; then
         break
@@ -691,6 +691,7 @@ case "$COMMAND" in
       echo "  Check logs: docker logs $CONTAINER_NAME"
       exit 1
     fi
+    echo ":: Container started."
 
     # Copy source directories into container via docker cp
     copy_source_dirs || exit 1
