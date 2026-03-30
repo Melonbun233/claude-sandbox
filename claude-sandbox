@@ -288,6 +288,7 @@ while [ $# -gt 0 ]; do
     --help|-h)       usage; exit 0 ;;
     --dir=*)         SOURCE_DIRS+=("${1#--dir=}") ;;
     --dir)           shift; [ -n "${1:-}" ] || { echo "ERROR: --dir requires a value"; exit 1; }; SOURCE_DIRS+=("$1") ;;
+    --prefix=*)      ;; # handled by install command
     *)               echo "Unknown option: $1"; usage; exit 1 ;;
   esac
   shift
@@ -369,7 +370,7 @@ print_session_exit_message() {
   echo "─────────────────────────────────────────────"
 }
 
-# ── Generate docker-compose.override.yaml from workspace.yaml git_config ────
+# ── Generate docker-compose.override.yaml from sandbox.yaml git_config ───────
 generate_compose_override() {
   local CONFIG_FILE=""
   if [ -f "$SCRIPT_DIR/config/sandbox.yaml" ]; then
@@ -380,25 +381,22 @@ generate_compose_override() {
   fi
   local OVERRIDE_FILE="$SCRIPT_DIR/docker-compose.override.yaml"
 
-  # If no sandbox.yaml, remove any stale override and return
-  if [ -z "$CONFIG_FILE" ]; then
-    rm -f "$OVERRIDE_FILE"
-    return 0
-  fi
+  # If no config file, skip SSH/gitconfig validation but continue for source dirs
+  local MOUNT_SSH="false"
+  local MOUNT_GITCONFIG="false"
+  local SSH_AGENT="false"
 
-  # yq is required to parse workspace.yaml
-  if ! command -v yq &>/dev/null; then
-    echo "ERROR: 'yq' is required but not found on this machine."
-    echo "  Install: brew install yq (macOS) or see https://github.com/mikefarah/yq"
-    return 1
-  fi
+  if [ -n "$CONFIG_FILE" ]; then
+    # yq is required to parse sandbox.yaml
+    if ! command -v yq &>/dev/null; then
+      echo "ERROR: 'yq' is required but not found on this machine."
+      echo "  Install: brew install yq (macOS) or see https://github.com/mikefarah/yq"
+      return 1
+    fi
 
-  local MOUNT_SSH
-  local MOUNT_GITCONFIG
-  MOUNT_SSH=$(yq '.git_config.mount_ssh // false' "$CONFIG_FILE" 2>/dev/null)
-  MOUNT_GITCONFIG=$(yq '.git_config.mount_gitconfig // false' "$CONFIG_FILE" 2>/dev/null)
-  local SSH_AGENT
-  SSH_AGENT=$(yq '.git_config.ssh_agent // false' "$CONFIG_FILE" 2>/dev/null)
+    MOUNT_SSH=$(yq '.git_config.mount_ssh // false' "$CONFIG_FILE" 2>/dev/null)
+    MOUNT_GITCONFIG=$(yq '.git_config.mount_gitconfig // false' "$CONFIG_FILE" 2>/dev/null)
+    SSH_AGENT=$(yq '.git_config.ssh_agent // false' "$CONFIG_FILE" 2>/dev/null)
 
   # Validate: any server with auth_method: ssh requires mount_ssh: true
   local SERVER_COUNT
@@ -411,7 +409,7 @@ generate_compose_override() {
     if [ "$AUTH_METHOD" = "ssh" ] && [ "$MOUNT_SSH" != "true" ] && [ "$SSH_AGENT" != "true" ]; then
       echo "ERROR: Server '$HOST' uses auth_method: ssh but neither git_config.mount_ssh nor git_config.ssh_agent is enabled."
       echo ""
-      echo "  Add one of these to config/workspace.yaml:"
+      echo "  Add one of these to config/sandbox.yaml:"
       echo "    git_config:"
       echo "      ssh_agent: true      # recommended: forward host SSH agent"
       echo "      mount_ssh: true      # alternative: mount key files"
@@ -465,6 +463,8 @@ generate_compose_override() {
       return 1
     fi
   fi
+
+  fi  # end if [ -n "$CONFIG_FILE" ]
 
   # Determine if override file is needed
   local NEED_OVERRIDE="false"
