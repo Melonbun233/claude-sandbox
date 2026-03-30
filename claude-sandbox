@@ -4,7 +4,16 @@ set -euo pipefail
 # ── claude-sandbox — CLI wrapper for claude-sandbox ──────────────────────────────
 
 COMPOSE="docker compose"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Resolve symlinks to find the real script location (supports `install` symlink)
+_source="${BASH_SOURCE[0]}"
+while [ -L "$_source" ]; do
+  _dir="$(cd "$(dirname "$_source")" && pwd)"
+  _source="$(readlink "$_source")"
+  # If readlink returns a relative path, resolve it relative to the symlink dir
+  [[ "$_source" != /* ]] && _source="$_dir/$_source"
+done
+SCRIPT_DIR="$(cd "$(dirname "$_source")" && pwd)"
+unset _source _dir
 ORIGINAL_CWD="$(pwd)"
 
 cd "$SCRIPT_DIR"
@@ -308,6 +317,9 @@ if [[ "$COMMAND" =~ ^(launch|start|run)$ ]]; then
   RESOLVED_DIRS=()
   BASENAMES=()
   for dir in "${SOURCE_DIRS[@]}"; do
+    # Expand leading ~ to $HOME (shell doesn't expand tilde inside --dir=~/...)
+    [[ "$dir" == "~/"* ]] && dir="$HOME/${dir#\~/}"
+    [[ "$dir" == "~" ]] && dir="$HOME"
     abs_dir="$(cd "$dir" 2>/dev/null && pwd)" || {
       echo "ERROR: Directory does not exist: $dir"
       exit 1
