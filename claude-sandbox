@@ -533,12 +533,14 @@ copy_source_dirs() {
   fi
 
   # Wait for entrypoint to signal it's ready for copy
+  printf ":: Waiting for container setup..."
   local COPY_READY_TIMEOUT=60
   for i in $(seq 1 "$COPY_READY_TIMEOUT"); do
     if docker exec "$CONTAINER_NAME" test -f /workspace/.claude-session/copy-ready 2>/dev/null; then
       break
     fi
     if ! container_running; then
+      echo " FAILED"
       echo "ERROR: Container stopped before copy could begin."
       return 1
     fi
@@ -546,11 +548,11 @@ copy_source_dirs() {
   done
 
   if ! docker exec "$CONTAINER_NAME" test -f /workspace/.claude-session/copy-ready 2>/dev/null; then
+    echo " FAILED"
     echo "ERROR: Container did not signal copy-ready within ${COPY_READY_TIMEOUT}s."
     return 1
   fi
-
-  echo ":: Copying source directories into container..."
+  echo " done"
 
   # docker cp each source directory
   for entry in "${SOURCE_DIRS[@]}"; do
@@ -561,17 +563,20 @@ copy_source_dirs() {
       echo "  /workspace/$bname already exists, skipping copy"
       continue
     fi
-    echo "  Copying $bname to container:/workspace/$bname ..."
+    printf ":: Copying $bname..."
     docker cp "$host_path/." "$CONTAINER_NAME:/workspace/$bname" || {
+      echo " FAILED"
       echo "ERROR: Failed to copy $bname"
       return 1
     }
+    echo " done"
   done
 
   # Fix ownership (docker cp creates files as root) and signal completion
+  printf ":: Setting permissions..."
   docker exec -u root "$CONTAINER_NAME" chown -R claude:claude /workspace/
   docker exec "$CONTAINER_NAME" touch /workspace/.claude-session/copy-done
-  echo "  Source directories copied."
+  echo " done"
 }
 
 # ── Commands ─────────────────────────────────────────────────────────────────
@@ -680,6 +685,7 @@ case "$COMMAND" in
     fi
 
     # Wait for container to be running
+    printf ":: Starting container..."
     for i in $(seq 1 30); do
       if container_running; then
         break
@@ -687,11 +693,12 @@ case "$COMMAND" in
       sleep 1
     done
     if ! container_running; then
+      echo " FAILED"
       echo "ERROR: Container did not start within 30 seconds."
       echo "  Check logs: docker logs $CONTAINER_NAME"
       exit 1
     fi
-    echo ":: Container started."
+    echo " done"
 
     # Copy source directories into container via docker cp
     copy_source_dirs || exit 1
