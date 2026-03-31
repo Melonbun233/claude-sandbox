@@ -20,6 +20,7 @@ Isolated, containerized Claude Code environment (`ubuntu:24.04`) for DevOps, dev
 ./claude-sandbox run <name> --prompt="<text>"             # run one-shot prompt
 ./claude-sandbox run <name> --prompt="<text>" --repo=/path # run one-shot on a specific directory
 ./claude-sandbox run <name> --pr=123                      # run PR review
+./claude-sandbox run <name> --prompt="<text>" --copy=~/.aws # copy host files into container
 ./claude-sandbox stop <name>                              # stop (preserves state)
 ./claude-sandbox delete <name>                            # permanently remove container + volume
 ./claude-sandbox list                                     # show all sessions
@@ -38,7 +39,7 @@ There is no test suite. Verify changes by building the image and starting a sess
 2. Copy + patch host `~/.claude.json` (pre-accept `/workspace` trust)
 3. Copy + rewrite host `~/.claude/settings.json` (`localhost` → `host.docker.internal`)
 4. `setup-git.sh` — authenticate git per server (SSH keys + credential store + gh CLI)
-5. Host CLI copies source directories via `docker cp` (entrypoint handshake: copy-ready → copy-done)
+5. Host CLI copies source directories and custom files via `docker cp` (entrypoint handshake: copy-ready → copy-done)
 6. Per-repo git setup — `safe.directory`, per-repo identity from `github_servers[]`
 7. `setup-claude-config.sh` — cascade host → built-in → per-repo config
 8. Create `/workspace/.claude-session/` (status.json, output.log)
@@ -71,6 +72,16 @@ Built-in config (baked into image at `/etc/claude-sandbox/claude-config/`) is in
 - **agents/skills**: host files override built-in if same name
 
 Per-repo config (`/host-config/repos/<name>/`) is copied to `/workspace/<name>/.claude/`.
+
+### Custom File Copy
+
+Copy arbitrary host files/directories into the container via `--copy` flag or `sandbox.yaml` `custom_files`:
+
+- `--copy=<source>[:<dest>][:<mode>]` — ad-hoc file/dir copy (repeatable). Dest defaults to same path (`~` → `/home/claude/`), mode defaults to `ro`.
+- `sandbox.yaml` `custom_files` — declarative copies applied on every session start. CLI `--copy` overrides on collision.
+- `ro` entries get `chmod -R a-w`; `rw` entries left as-is.
+
+Copies happen after `--repo` directories, so `--copy` can target paths inside repos.
 
 ### One-Shot vs Develop
 

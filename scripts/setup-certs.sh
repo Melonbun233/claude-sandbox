@@ -1,13 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# ── Install custom CA certificates from workspace.yaml ────────────────────────
+# ── Install custom CA certificates from sandbox.yaml ─────────────────────────
 
-CONFIG_FILE="/etc/claude-sandbox/config/workspace.yaml"
+if [ -f "/etc/claude-sandbox/config/sandbox.yaml" ]; then
+  CONFIG_FILE="/etc/claude-sandbox/config/sandbox.yaml"
+elif [ -f "/etc/claude-sandbox/config/workspace.yaml" ]; then
+  echo "  WARN: workspace.yaml is deprecated. Rename to sandbox.yaml."
+  CONFIG_FILE="/etc/claude-sandbox/config/workspace.yaml"
+else
+  CONFIG_FILE=""
+fi
 CERTS_DIR="/etc/claude-sandbox/certs"
 CA_DEST="/usr/local/share/ca-certificates"
 
-if [ ! -f "$CONFIG_FILE" ]; then
+if [ -z "$CONFIG_FILE" ]; then
   exit 0
 fi
 

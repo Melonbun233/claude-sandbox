@@ -292,6 +292,7 @@ KEEP_SESSION="false"
 AUTO_REMOVE="false"
 REPO_DIRS=()
 COPY_ENTRIES=()
+RESOLVED_COPIES=()
 DEFAULT_WORKDIR=""
 INSTALL_PREFIX=""
 
@@ -681,8 +682,11 @@ copy_custom_files() {
     fi
   done
 
-  # Fix ownership for all copied files
+  # Fix ownership for all copied files (covers both /workspace/ and /home/claude/ targets)
   docker exec -u root "$CONTAINER_NAME" chown -R claude:claude /home/claude/ || true
+  if docker exec "$CONTAINER_NAME" test -d /workspace/ 2>/dev/null; then
+    docker exec -u root "$CONTAINER_NAME" chown -R claude:claude /workspace/ || true
+  fi
 
   # Apply read-only permissions for ro entries
   for entry in "${RESOLVED_COPIES[@]}"; do
