@@ -91,7 +91,7 @@ Per-repo config (`/host-config/repos/<name>/`) is copied to `/workspace/<name>/.
 
 ## Conventions
 
-- All setup scripts degrade gracefully: warn and continue if credentials are missing (`|| echo "WARN: ..."`)
+- Setup scripts fail hard when explicitly declared config is broken; skip silently when nothing is configured
 - Source directories are copied via `docker cp` (no bind mounts) to avoid macOS virtiofs overhead
 - Token indirection: `sandbox.yaml` stores env var *names* (`token_env: GH_TOKEN`), resolved at runtime via `${!TOKEN_ENV}`
 - All `.env` variables auto-passed to container via `env_file` in docker-compose.yaml

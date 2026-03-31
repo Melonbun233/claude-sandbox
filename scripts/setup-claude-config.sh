@@ -20,8 +20,11 @@ fi
 if [ -f "$BUILTIN_CONFIG/settings.json" ]; then
   if [ -f "$CLAUDE_HOME/settings.json" ]; then
     jq -s '.[0] * .[1]' "$CLAUDE_HOME/settings.json" "$BUILTIN_CONFIG/settings.json" \
-      > "$CLAUDE_HOME/settings.json.tmp" \
-      && mv "$CLAUDE_HOME/settings.json.tmp" "$CLAUDE_HOME/settings.json"
+      > "$CLAUDE_HOME/settings.json.tmp" || {
+      echo "  ERROR: Failed to merge built-in settings.json"
+      exit 1
+    }
+    mv "$CLAUDE_HOME/settings.json.tmp" "$CLAUDE_HOME/settings.json"
     echo "  Merged built-in settings.json with host settings"
   else
     cp "$BUILTIN_CONFIG/settings.json" "$CLAUDE_HOME/settings.json"
@@ -44,8 +47,11 @@ if [ -d "$HOST_CONFIG" ]; then
   if [ -f "$HOST_CONFIG/settings.json" ]; then
     if [ -f "$CLAUDE_HOME/settings.json" ]; then
       jq -s '.[0] * .[1]' "$CLAUDE_HOME/settings.json" "$HOST_CONFIG/settings.json" \
-        > "$CLAUDE_HOME/settings.json.tmp" \
-        && mv "$CLAUDE_HOME/settings.json.tmp" "$CLAUDE_HOME/settings.json"
+        > "$CLAUDE_HOME/settings.json.tmp" || {
+        echo "  ERROR: Failed to merge host settings.json"
+        exit 1
+      }
+      mv "$CLAUDE_HOME/settings.json.tmp" "$CLAUDE_HOME/settings.json"
       echo "  Merged host settings.json with built-in defaults"
     else
       cp "$HOST_CONFIG/settings.json" "$CLAUDE_HOME/settings.json"
@@ -68,6 +74,7 @@ if [ -d "$HOST_CONFIG" ]; then
 
   # Host skills (override built-in if same name)
   if [ -d "$HOST_CONFIG/skills" ]; then
+    mkdir -p "$CLAUDE_HOME/skills"
     if compgen -G "$HOST_CONFIG/skills/*" > /dev/null; then
       cp -r "$HOST_CONFIG/skills/"* "$CLAUDE_HOME/skills/" || {
         echo "  ERROR: Failed to copy host skills"
