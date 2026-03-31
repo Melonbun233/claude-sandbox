@@ -372,6 +372,97 @@ if [[ "$COMMAND" =~ ^(launch|start|run)$ ]]; then
   export DEFAULT_WORKDIR
 fi
 
+# ── Parse and validate --copy entries + sandbox.yaml custom_files ────────────
+# Populates RESOLVED_COPIES array with entries: "host_path:container_dest:mode"
+parse_copy_entries() {
+  RESOLVED_COPIES=()
+
+  # Step 1: Read custom_files from sandbox.yaml (if exists)
+  local CONFIG_FILE=""
+  if [ -f "$SCRIPT_DIR/config/sandbox.yaml" ]; then
+    CONFIG_FILE="$SCRIPT_DIR/config/sandbox.yaml"
+  elif [ -f "$SCRIPT_DIR/config/workspace.yaml" ]; then
+    CONFIG_FILE="$SCRIPT_DIR/config/workspace.yaml"
+  fi
+
+  if [ -n "$CONFIG_FILE" ] && command -v yq &>/dev/null; then
+    local FILE_COUNT
+    FILE_COUNT=$(yq '.custom_files | length' "$CONFIG_FILE" 2>/dev/null || echo 0)
+
+    for i in $(seq 0 $((FILE_COUNT - 1))); do
+      local src dest mode
+      src=$(yq ".custom_files[$i].source // \"\"" "$CONFIG_FILE")
+      dest=$(yq ".custom_files[$i].dest // \"\"" "$CONFIG_FILE")
+      mode=$(yq ".custom_files[$i].mode // \"\"" "$CONFIG_FILE")
+
+      if [ -z "$src" ]; then
+        echo "ERROR: custom_files[$i] in sandbox.yaml is missing 'source'"
+        return 1
+      fi
+
+      resolve_copy_entry "$src" "$dest" "$mode" "sandbox.yaml custom_files[$i]" || return 1
+    done
+  fi
+
+  # Step 2: Parse CLI --copy entries (these override sandbox.yaml on collision)
+  for raw in "${COPY_ENTRIES[@]+"${COPY_ENTRIES[@]}"}"; do
+    # Parse colon-delimited: source[:dest][:mode]
+    local src dest mode
+    IFS=':' read -r src dest mode <<< "$raw"
+
+    resolve_copy_entry "$src" "$dest" "$mode" "--copy=$raw" || return 1
+  done
+}
+
+# Resolve a single copy entry: expand paths, validate, append to RESOLVED_COPIES
+# Usage: resolve_copy_entry <source> <dest> <mode> <label>
+resolve_copy_entry() {
+  local src="$1" dest="$2" mode="$3" label="$4"
+
+  # Expand ~ in source
+  [[ "$src" == "~/"* ]] && src="$HOME/${src#\~/}"
+  [[ "$src" == "~" ]] && src="$HOME"
+
+  # Resolve to absolute path
+  if [[ "$src" != /* ]]; then
+    src="$ORIGINAL_CWD/$src"
+  fi
+  # Normalize path (resolve ./ and ../)
+  src="$(cd "$(dirname "$src")" 2>/dev/null && echo "$(pwd)/$(basename "$src")")" || {
+    echo "ERROR: Source path does not exist ($label): $src"
+    return 1
+  }
+
+  # Validate source exists
+  if [ ! -e "$src" ]; then
+    echo "ERROR: Source path does not exist ($label): $src"
+    return 1
+  fi
+
+  # Default mode
+  if [ -z "$mode" ]; then
+    mode="ro"
+  fi
+
+  # Validate mode
+  if [ "$mode" != "ro" ] && [ "$mode" != "rw" ]; then
+    echo "ERROR: Invalid mode '$mode' ($label). Must be 'ro' or 'rw'."
+    return 1
+  fi
+
+  # Resolve destination
+  if [ -z "$dest" ]; then
+    # Default: same path, with $HOME → /home/claude/
+    dest="${src/#$HOME//home/claude}"
+  else
+    # Expand ~ in dest
+    [[ "$dest" == "~/"* ]] && dest="/home/claude/${dest#\~/}"
+    [[ "$dest" == "~" ]] && dest="/home/claude"
+  fi
+
+  RESOLVED_COPIES+=("${src}:${dest}:${mode}")
+}
+
 # ── Helper: check if container exists / is running ──────────────────────────
 container_exists() {
   docker container inspect "$CONTAINER_NAME" &>/dev/null
