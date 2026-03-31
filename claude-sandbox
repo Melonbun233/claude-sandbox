@@ -284,7 +284,8 @@ PROMPT_ARG=""
 POST_REVIEW="false"
 KEEP_SESSION="false"
 AUTO_REMOVE="false"
-SOURCE_DIRS=()
+REPO_DIRS=()
+COPY_ENTRIES=()
 DEFAULT_WORKDIR=""
 INSTALL_PREFIX=""
 
@@ -297,27 +298,37 @@ while [ $# -gt 0 ]; do
     --rm)            AUTO_REMOVE="true" ;;
     --dangerously-skip-permissions) SKIP_PERMISSIONS="true" ;;
     --help|-h)       usage; exit 0 ;;
-    --dir=*)         SOURCE_DIRS+=("${1#--dir=}") ;;
-    --dir)           shift; [ -n "${1:-}" ] || { echo "ERROR: --dir requires a value"; exit 1; }; SOURCE_DIRS+=("$1") ;;
+    --repo=*)        REPO_DIRS+=("${1#--repo=}") ;;
+    --repo)          shift; [ -n "${1:-}" ] || { echo "ERROR: --repo requires a value"; exit 1; }; REPO_DIRS+=("$1") ;;
+    --copy=*)        COPY_ENTRIES+=("${1#--copy=}") ;;
+    --copy)          shift; [ -n "${1:-}" ] || { echo "ERROR: --copy requires a value"; exit 1; }; COPY_ENTRIES+=("$1") ;;
     --prefix=*)      INSTALL_PREFIX="${1#--prefix=}" ;; # used by install command
     *)               echo "Unknown option: $1"; usage; exit 1 ;;
   esac
   shift
 done
 
-# ── Resolve source directories ───────────────────────────────────────────────
+# ── Resolve repo directories ───────────────────────────────────────────────
 # Only for commands that create sessions (launch, start, run)
 if [[ "$COMMAND" =~ ^(launch|start|run)$ ]]; then
-  # Default to CWD if no --dir flags
-  if [ ${#SOURCE_DIRS[@]} -eq 0 ]; then
-    SOURCE_DIRS=("$ORIGINAL_CWD")
+  # Default to CWD if no --repo flags
+  if [ ${#REPO_DIRS[@]} -eq 0 ]; then
+    REPO_DIRS=("$ORIGINAL_CWD")
   fi
 
   # Resolve to absolute paths and validate
   RESOLVED_DIRS=()
   BASENAMES=()
-  for dir in "${SOURCE_DIRS[@]}"; do
-    # Expand leading ~ to $HOME (shell doesn't expand tilde inside --dir=~/...)
+  for entry in "${REPO_DIRS[@]}"; do
+    # Split on first colon to get path and optional name
+    dir="${entry%%:*}"
+    custom_name="${entry#*:}"
+    # If no colon was found, custom_name equals entry (no override)
+    if [ "$custom_name" = "$entry" ]; then
+      custom_name=""
+    fi
+
+    # Expand leading ~ to $HOME (shell doesn't expand tilde inside --repo=~/...)
     [[ "$dir" == "~/"* ]] && dir="$HOME/${dir#\~/}"
     [[ "$dir" == "~" ]] && dir="$HOME"
     abs_dir="$(cd "$dir" 2>/dev/null && pwd)" || {
@@ -328,22 +339,29 @@ if [[ "$COMMAND" =~ ^(launch|start|run)$ ]]; then
       echo "ERROR: Directory is empty: $abs_dir"
       exit 1
     fi
-    bname=$(basename "$abs_dir")
+
+    # Use custom name if provided, otherwise basename
+    if [ -n "$custom_name" ]; then
+      bname="$custom_name"
+    else
+      bname=$(basename "$abs_dir")
+    fi
+
     # Check for basename collisions
     for existing in "${BASENAMES[@]+"${BASENAMES[@]}"}"; do
       if [ "$existing" = "$bname" ]; then
-        echo "ERROR: Basename collision — two directories named '$bname'."
-        echo "  Rename one of them, or use a parent directory."
+        echo "ERROR: Workspace name collision — two repos named '$bname'."
+        echo "  Use --repo=<path>:<name> to give one a different name."
         exit 1
       fi
     done
     BASENAMES+=("$bname")
     RESOLVED_DIRS+=("${abs_dir}:${bname}")
   done
-  SOURCE_DIRS=("${RESOLVED_DIRS[@]}")
+  REPO_DIRS=("${RESOLVED_DIRS[@]}")
 
-  # Compute DEFAULT_WORKDIR (first dir's basename)
-  first_bname="${SOURCE_DIRS[0]##*:}"
+  # Compute DEFAULT_WORKDIR (first repo's name)
+  first_bname="${REPO_DIRS[0]##*:}"
   DEFAULT_WORKDIR="/workspace/${first_bname}"
   export DEFAULT_WORKDIR
 fi
@@ -526,7 +544,7 @@ generate_compose_override() {
 
 # ── Copy source directories into running container via docker cp ─────────────
 copy_source_dirs() {
-  if [ ${#SOURCE_DIRS[@]} -eq 0 ]; then
+  if [ ${#REPO_DIRS[@]} -eq 0 ]; then
     # No source dirs — signal copy-done immediately so entrypoint proceeds
     docker exec "$CONTAINER_NAME" touch /workspace/.claude-session/copy-done 2>/dev/null || true
     return 0
@@ -553,7 +571,7 @@ copy_source_dirs() {
   echo ":: Copying source directories into container..."
 
   # docker cp each source directory
-  for entry in "${SOURCE_DIRS[@]}"; do
+  for entry in "${REPO_DIRS[@]}"; do
     local host_path="${entry%%:*}"
     local bname="${entry##*:}"
     # Skip if directory already exists in workspace (restart case)
