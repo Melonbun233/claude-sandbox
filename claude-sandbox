@@ -639,10 +639,72 @@ generate_compose_override() {
   fi
 }
 
-# ── Copy source directories into running container via docker cp ─────────────
-copy_source_dirs() {
-  if [ ${#REPO_DIRS[@]} -eq 0 ]; then
-    # No source dirs — signal copy-done immediately so entrypoint proceeds
+# ── Copy custom files/dirs into running container via docker cp ───────────
+copy_custom_files() {
+  if [ ${#RESOLVED_COPIES[@]} -eq 0 ]; then
+    return 0
+  fi
+
+  echo ":: Copying custom files into container..."
+
+  for entry in "${RESOLVED_COPIES[@]}"; do
+    local src dest mode
+    IFS=':' read -r src dest mode <<< "$entry"
+
+    # Create parent directory in container
+    local dest_parent
+    if [ -d "$src" ]; then
+      dest_parent="$dest"
+    else
+      dest_parent="$(dirname "$dest")"
+    fi
+    docker exec "$CONTAINER_NAME" mkdir -p "$dest_parent" || {
+      echo "ERROR: Failed to create directory $dest_parent in container"
+      return 1
+    }
+
+    # Copy file or directory
+    if [ -d "$src" ]; then
+      # Directory copy: create dest dir, copy contents
+      docker exec "$CONTAINER_NAME" mkdir -p "$dest"
+      docker cp "$src/." "$CONTAINER_NAME:$dest" || {
+        echo "ERROR: Failed to copy directory $src to $dest"
+        return 1
+      }
+      echo "  $src/ -> $dest/ ($mode)"
+    else
+      docker cp "$src" "$CONTAINER_NAME:$dest" || {
+        echo "ERROR: Failed to copy file $src to $dest"
+        return 1
+      }
+      echo "  $src -> $dest ($mode)"
+    fi
+  done
+
+  # Fix ownership for all copied files
+  docker exec -u root "$CONTAINER_NAME" chown -R claude:claude /home/claude/ || true
+
+  # Apply read-only permissions for ro entries
+  for entry in "${RESOLVED_COPIES[@]}"; do
+    local src dest mode
+    IFS=':' read -r src dest mode <<< "$entry"
+    if [ "$mode" = "ro" ]; then
+      docker exec -u root "$CONTAINER_NAME" chmod -R a-w "$dest"
+    fi
+  done
+
+  echo " ✔ Custom files copied"
+}
+
+# ── Copy repos + custom files into running container via docker cp ─────────
+copy_all_to_container() {
+  local HAS_REPOS=false
+  local HAS_COPIES=false
+  [ ${#REPO_DIRS[@]} -gt 0 ] && HAS_REPOS=true
+  [ ${#RESOLVED_COPIES[@]} -gt 0 ] && HAS_COPIES=true
+
+  if [ "$HAS_REPOS" = "false" ] && [ "$HAS_COPIES" = "false" ]; then
+    # Nothing to copy — signal copy-done immediately so entrypoint proceeds
     docker exec "$CONTAINER_NAME" touch /workspace/.claude-session/copy-done 2>/dev/null || true
     return 0
   fi
@@ -665,28 +727,34 @@ copy_source_dirs() {
     return 1
   fi
 
-  echo ":: Copying source directories into container..."
+  # Phase 1: Copy repo directories
+  if [ "$HAS_REPOS" = "true" ]; then
+    echo ":: Copying repo directories into container..."
+    for entry in "${REPO_DIRS[@]}"; do
+      local host_path="${entry%%:*}"
+      local bname="${entry##*:}"
+      # Skip if directory already exists in workspace (restart case)
+      if docker exec "$CONTAINER_NAME" test -d "/workspace/$bname" 2>/dev/null; then
+        echo "  /workspace/$bname already exists, skipping copy"
+        continue
+      fi
+      echo "  Copying $bname to container:/workspace/$bname ..."
+      docker cp "$host_path/." "$CONTAINER_NAME:/workspace/$bname" || {
+        echo "ERROR: Failed to copy $bname"
+        return 1
+      }
+    done
 
-  # docker cp each source directory
-  for entry in "${REPO_DIRS[@]}"; do
-    local host_path="${entry%%:*}"
-    local bname="${entry##*:}"
-    # Skip if directory already exists in workspace (restart case)
-    if docker exec "$CONTAINER_NAME" test -d "/workspace/$bname" 2>/dev/null; then
-      echo "  /workspace/$bname already exists, skipping copy"
-      continue
-    fi
-    echo "  Copying $bname to container:/workspace/$bname ..."
-    docker cp "$host_path/." "$CONTAINER_NAME:/workspace/$bname" || {
-      echo "ERROR: Failed to copy $bname"
-      return 1
-    }
-  done
+    # Fix ownership for workspace (docker cp creates files as root)
+    docker exec -u root "$CONTAINER_NAME" chown -R claude:claude /workspace/
+    echo " ✔ Repo directories copied"
+  fi
 
-  # Fix ownership (docker cp creates files as root) and signal completion
-  docker exec -u root "$CONTAINER_NAME" chown -R claude:claude /workspace/
+  # Phase 2: Copy custom files (after repos, so --copy can target /workspace/<repo>/)
+  copy_custom_files || return 1
+
+  # Signal completion to entrypoint
   docker exec "$CONTAINER_NAME" touch /workspace/.claude-session/copy-done
-  echo " ✔ Source directories copied"
 }
 
 # ── Commands ─────────────────────────────────────────────────────────────────
@@ -790,6 +858,7 @@ case "$COMMAND" in
       docker start "$CONTAINER_NAME"
     else
       echo ":: Creating session '$SESSION_NAME'..."
+      parse_copy_entries || exit 1
       generate_compose_override || exit 1
       $COMPOSE up -d
     fi
@@ -809,7 +878,7 @@ case "$COMMAND" in
     echo " ✔ Container ready"
 
     # Copy source directories into container via docker cp
-    copy_source_dirs || exit 1
+    copy_all_to_container || exit 1
 
     # Stream entrypoint output while waiting for setup to complete
     echo ""
@@ -882,12 +951,13 @@ case "$COMMAND" in
       echo ":: Restarting stopped session '$SESSION_NAME'..."
       docker start "$CONTAINER_NAME"
     else
+      parse_copy_entries || exit 1
       generate_compose_override || exit 1
       $COMPOSE up -d
     fi
 
     # Copy source directories into container via docker cp
-    copy_source_dirs || exit 1
+    copy_all_to_container || exit 1
 
     echo ""
     echo "Session '$SESSION_NAME' started."
@@ -951,11 +1021,12 @@ case "$COMMAND" in
     export ONE_SHOT_PROMPT="$PROMPT"
 
     # Start container detached, copy source dirs, then wait for completion
+    parse_copy_entries || exit 1
     generate_compose_override || exit 1
     $COMPOSE up -d
 
     # Copy source directories via docker cp
-    copy_source_dirs || exit 1
+    copy_all_to_container || exit 1
 
     # Stream logs and wait for container to finish (one-shot exits after prompt)
     echo ""
