@@ -27,10 +27,10 @@ A session name is required for all commands (except build, list, help).
 Commands:
   build                                Build the container image
   install [--prefix=<path>]               Install CLI globally (symlink)
-  launch <name> [--repo=<path>]... [opts]          Start + attach in one step
-  start <name> [--repo=<path>]... [opts]           Start a new session
-  attach <name> [--dangerously-skip-permissions]   Attach to a running session
-  run <name> --prompt=<text> [--repo=<path>]...    Run a one-shot prompt
+  launch <name> [--repo=<path>]... [--copy=<src>]... [opts]  Start + attach in one step
+  start <name> [--repo=<path>]... [--copy=<src>]... [opts]  Start a new session
+  attach <name> [--dangerously-skip-permissions]            Attach to a running session
+  run <name> --prompt=<text> [--repo=<path>]... [--copy=<src>]...  Run a one-shot prompt
   status <name>                        Show session status
   logs <name>                          Tail session output log
   stop <name>                          Stop session (can be restarted later)
@@ -390,6 +390,7 @@ parse_copy_entries() {
     local FILE_COUNT
     FILE_COUNT=$(yq '.custom_files | length' "$CONFIG_FILE" 2>/dev/null || echo 0)
 
+    if [ "$FILE_COUNT" -gt 0 ]; then
     for i in $(seq 0 $((FILE_COUNT - 1))); do
       local src dest mode
       src=$(yq ".custom_files[$i].source // \"\"" "$CONFIG_FILE")
@@ -403,6 +404,7 @@ parse_copy_entries() {
 
       resolve_copy_entry "$src" "$dest" "$mode" "sandbox.yaml custom_files[$i]" || return 1
     done
+    fi
   fi
 
   # Step 2: Parse CLI --copy entries (these override sandbox.yaml on collision)

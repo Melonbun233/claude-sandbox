@@ -32,3 +32,18 @@ github_servers:
   #   user_name: Jane Doe
   #   user_email: jane.doe@corp.com
   #   ssl_verify: false
+
+# ── Custom Files (optional) ──────────────────────────────────────────────────
+# Copy host files/directories into the container on every session start.
+# Each entry needs a source path. dest defaults to the same path (~ → /home/claude/).
+# mode defaults to 'ro' (read-only). Use 'rw' for writable copies.
+#
+# custom_files:
+#   - source: ~/.aws
+#   - source: ~/.kube/config
+#   - source: ~/.npmrc
+#     dest: /home/claude/.npmrc
+#     mode: rw
+#   - source: ./project-tools/lint.sh
+#     dest: /workspace/api/tools/lint.sh
+#     mode: rw
