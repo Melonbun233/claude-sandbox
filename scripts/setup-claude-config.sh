@@ -20,8 +20,11 @@ fi
 if [ -f "$BUILTIN_CONFIG/settings.json" ]; then
   if [ -f "$CLAUDE_HOME/settings.json" ]; then
     jq -s '.[0] * .[1]' "$CLAUDE_HOME/settings.json" "$BUILTIN_CONFIG/settings.json" \
-      > "$CLAUDE_HOME/settings.json.tmp" \
-      && mv "$CLAUDE_HOME/settings.json.tmp" "$CLAUDE_HOME/settings.json"
+      > "$CLAUDE_HOME/settings.json.tmp" || {
+      echo "  ERROR: Failed to merge built-in settings.json"
+      exit 1
+    }
+    mv "$CLAUDE_HOME/settings.json.tmp" "$CLAUDE_HOME/settings.json"
     echo "  Merged built-in settings.json with host settings"
   else
     cp "$BUILTIN_CONFIG/settings.json" "$CLAUDE_HOME/settings.json"
@@ -44,8 +47,11 @@ if [ -d "$HOST_CONFIG" ]; then
   if [ -f "$HOST_CONFIG/settings.json" ]; then
     if [ -f "$CLAUDE_HOME/settings.json" ]; then
       jq -s '.[0] * .[1]' "$CLAUDE_HOME/settings.json" "$HOST_CONFIG/settings.json" \
-        > "$CLAUDE_HOME/settings.json.tmp" \
-        && mv "$CLAUDE_HOME/settings.json.tmp" "$CLAUDE_HOME/settings.json"
+        > "$CLAUDE_HOME/settings.json.tmp" || {
+        echo "  ERROR: Failed to merge host settings.json"
+        exit 1
+      }
+      mv "$CLAUDE_HOME/settings.json.tmp" "$CLAUDE_HOME/settings.json"
       echo "  Merged host settings.json with built-in defaults"
     else
       cp "$HOST_CONFIG/settings.json" "$CLAUDE_HOME/settings.json"
@@ -56,14 +62,26 @@ if [ -d "$HOST_CONFIG" ]; then
   # Host agents (override built-in if same name)
   if [ -d "$HOST_CONFIG/agents" ]; then
     mkdir -p "$CLAUDE_HOME/agents"
-    cp "$HOST_CONFIG/agents/"*.md "$CLAUDE_HOME/agents/" 2>/dev/null || true
-    echo "  Copied host agents"
+    # Only copy if .md files exist; fail if cp itself fails
+    if compgen -G "$HOST_CONFIG/agents/*.md" > /dev/null; then
+      cp "$HOST_CONFIG/agents/"*.md "$CLAUDE_HOME/agents/" || {
+        echo "  ERROR: Failed to copy host agents"
+        exit 1
+      }
+      echo "  Copied host agents"
+    fi
   fi
 
   # Host skills (override built-in if same name)
   if [ -d "$HOST_CONFIG/skills" ]; then
-    cp -r "$HOST_CONFIG/skills/"* "$CLAUDE_HOME/skills/" 2>/dev/null || true
-    echo "  Copied host skills"
+    mkdir -p "$CLAUDE_HOME/skills"
+    if compgen -G "$HOST_CONFIG/skills/*" > /dev/null; then
+      cp -r "$HOST_CONFIG/skills/"* "$CLAUDE_HOME/skills/" || {
+        echo "  ERROR: Failed to copy host skills"
+        exit 1
+      }
+      echo "  Copied host skills"
+    fi
   fi
 
 fi
@@ -90,18 +108,34 @@ if [ -d "$HOST_CONFIG/repos" ]; then
     # Per-repo agents
     if [ -d "$REPO_DIR/agents" ]; then
       mkdir -p "$WORKSPACE_REPO/.claude/agents"
-      cp "$REPO_DIR/agents/"*.md "$WORKSPACE_REPO/.claude/agents/" 2>/dev/null || true
+      if compgen -G "$REPO_DIR/agents/*.md" > /dev/null; then
+        cp "$REPO_DIR/agents/"*.md "$WORKSPACE_REPO/.claude/agents/" || {
+          echo "  ERROR: Failed to copy agents for $REPO_NAME"
+          exit 1
+        }
+      fi
     fi
 
     # Per-repo skills
     if [ -d "$REPO_DIR/skills" ]; then
-      cp -r "$REPO_DIR/skills/"* "$WORKSPACE_REPO/.claude/skills/" 2>/dev/null || true
+      mkdir -p "$WORKSPACE_REPO/.claude/skills"
+      if compgen -G "$REPO_DIR/skills/*" > /dev/null; then
+        cp -r "$REPO_DIR/skills/"* "$WORKSPACE_REPO/.claude/skills/" || {
+          echo "  ERROR: Failed to copy skills for $REPO_NAME"
+          exit 1
+        }
+      fi
     fi
 
     # Per-repo plans
     if [ -d "$REPO_DIR/plans" ]; then
       mkdir -p "$WORKSPACE_REPO/.claude/plans"
-      cp "$REPO_DIR/plans/"*.md "$WORKSPACE_REPO/.claude/plans/" 2>/dev/null || true
+      if compgen -G "$REPO_DIR/plans/*.md" > /dev/null; then
+        cp "$REPO_DIR/plans/"*.md "$WORKSPACE_REPO/.claude/plans/" || {
+          echo "  ERROR: Failed to copy plans for $REPO_NAME"
+          exit 1
+        }
+      fi
     fi
   done
 fi

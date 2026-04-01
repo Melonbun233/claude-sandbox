@@ -16,7 +16,7 @@ rm -f /workspace/.claude-session/ready
 # ── Setup scripts ────────────────────────────────────────────────────────────
 
 echo ":: Installing custom CA certificates..."
-/scripts/setup-certs.sh || echo "WARN: CA cert setup had issues (continuing)"
+/scripts/setup-certs.sh
 
 # Copy host Anthropic config and pre-accept /workspace trust.
 # Host file is mounted read-only at /tmp/.claude.json.host; we copy and patch it.
@@ -54,7 +54,7 @@ else
 fi
 
 echo ":: Setting up Git..."
-/scripts/setup-git.sh || echo "WARN: Git setup had issues (continuing)"
+/scripts/setup-git.sh
 
 echo ":: Waiting for source directories..."
 mkdir -p /workspace/.claude-session
@@ -125,7 +125,7 @@ else
 fi
 
 echo ":: Configuring Claude Code..."
-/scripts/setup-claude-config.sh || echo "WARN: Claude config setup had issues (continuing)"
+/scripts/setup-claude-config.sh
 
 # ── Session directory ────────────────────────────────────────────────────────
 SESSION_DIR="/workspace/.claude-session"

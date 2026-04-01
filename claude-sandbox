@@ -27,10 +27,10 @@ A session name is required for all commands (except build, list, help).
 Commands:
   build                                Build the container image
   install [--prefix=<path>]               Install CLI globally (symlink)
-  launch <name> [--dir=<path>]... [opts]           Start + attach in one step
-  start <name> [--dir=<path>]... [opts]            Start a new session
+  launch <name> [--repo=<path>]... [opts]          Start + attach in one step
+  start <name> [--repo=<path>]... [opts]           Start a new session
   attach <name> [--dangerously-skip-permissions]   Attach to a running session
-  run <name> --prompt=<text> [--dir=<path>]...     Run a one-shot prompt
+  run <name> --prompt=<text> [--repo=<path>]...    Run a one-shot prompt
   status <name>                        Show session status
   logs <name>                          Tail session output log
   stop <name>                          Stop session (can be restarted later)
@@ -77,14 +77,17 @@ is already running, you'll be prompted to re-attach or replace it.
 Options:
   --dangerously-skip-permissions    Run Claude without tool confirmation prompts
   --rm                  Auto-remove session when Claude exits
-  --dir=<path>          Source directory to copy into sandbox (repeatable)
+  --repo=<path>[:<name>]  Source repo to copy into sandbox (repeatable)
                         Defaults to current working directory if not specified
+  --copy=<src>[:<dest>][:<mode>]  Copy file/dir into container (repeatable)
+                        dest defaults to same path, mode defaults to ro
 
 Examples:
-  claude-sandbox launch my-feature                    # sandbox current directory
-  claude-sandbox launch my-feature --dir=~/repos/api  # sandbox a specific directory
-  claude-sandbox launch my-feature --dir=~/repos/api --dir=~/repos/config
-  claude-sandbox launch my-feature --dangerously-skip-permissions
+  claude-sandbox launch my-feature
+  claude-sandbox launch my-feature --repo=~/repos/api
+  claude-sandbox launch my-feature --repo=~/repos/api --repo=~/repos/config
+  claude-sandbox launch my-feature --copy=~/.aws --copy=~/.kube/config
+  claude-sandbox launch my-feature --repo=~/repos/api:backend --copy=./env:/workspace/backend/.env:rw
   claude-sandbox launch my-feature --rm
 EOF
       ;;
@@ -97,17 +100,19 @@ container and persistent workspace volume.
 
 Options:
   --dangerously-skip-permissions    Run Claude without tool confirmation prompts
-  --dir=<path>          Source directory to copy into sandbox (repeatable)
+  --repo=<path>[:<name>]  Source repo to copy into sandbox (repeatable)
                         Defaults to current working directory if not specified
+  --copy=<src>[:<dest>][:<mode>]  Copy file/dir into container (repeatable)
+                        dest defaults to same path, mode defaults to ro
 
 If the session was previously stopped, it is restarted with its existing
 workspace data intact.
 
 Examples:
-  claude-sandbox start my-feature                    # sandbox current directory
-  claude-sandbox start my-feature --dir=~/repos/api  # sandbox a specific directory
-  claude-sandbox start my-feature --dir=~/repos/api --dir=~/repos/config
-  claude-sandbox start my-feature --dangerously-skip-permissions
+  claude-sandbox start my-feature
+  claude-sandbox start my-feature --repo=~/repos/api
+  claude-sandbox start my-feature --repo=~/repos/api --repo=~/repos/config
+  claude-sandbox start my-feature --copy=~/.aws --copy=~/.kube/config::rw
 EOF
       ;;
     attach)
@@ -139,16 +144,17 @@ Options:
   --pr=<ref>            PR review shorthand: number or org/repo#number
   --post                Post PR review to GitHub after completion
   --keep                Preserve session for later inspection (default: auto-remove)
-  --dir=<path>          Source directory to copy into sandbox (repeatable)
+  --repo=<path>[:<name>]  Source repo to copy into sandbox (repeatable)
                         Defaults to current working directory if not specified
+  --copy=<src>[:<dest>][:<mode>]  Copy file/dir into container (repeatable)
+                        dest defaults to same path, mode defaults to ro
 
 Examples:
   claude-sandbox run task1 --prompt "Respond with only: test successful"
-  claude-sandbox run task1 --prompt "Run tests" --dir=~/repos/api
-  claude-sandbox run task1 --prompt "Run tests" --dir=~/repos/api --dir=~/repos/config
+  claude-sandbox run task1 --prompt "Run tests" --repo=~/repos/api
+  claude-sandbox run task1 --prompt "Run tests" --repo=~/repos/api --copy=~/.aws
   claude-sandbox run review1 --pr=123
   claude-sandbox run review2 --pr=org/repo#456 --post
-  claude-sandbox run review3 --pr=123 --keep
 EOF
       ;;
     status)
@@ -284,7 +290,9 @@ PROMPT_ARG=""
 POST_REVIEW="false"
 KEEP_SESSION="false"
 AUTO_REMOVE="false"
-SOURCE_DIRS=()
+REPO_DIRS=()
+COPY_ENTRIES=()
+RESOLVED_COPIES=()
 DEFAULT_WORKDIR=""
 INSTALL_PREFIX=""
 
@@ -297,27 +305,37 @@ while [ $# -gt 0 ]; do
     --rm)            AUTO_REMOVE="true" ;;
     --dangerously-skip-permissions) SKIP_PERMISSIONS="true" ;;
     --help|-h)       usage; exit 0 ;;
-    --dir=*)         SOURCE_DIRS+=("${1#--dir=}") ;;
-    --dir)           shift; [ -n "${1:-}" ] || { echo "ERROR: --dir requires a value"; exit 1; }; SOURCE_DIRS+=("$1") ;;
+    --repo=*)        REPO_DIRS+=("${1#--repo=}") ;;
+    --repo)          shift; [ -n "${1:-}" ] || { echo "ERROR: --repo requires a value"; exit 1; }; REPO_DIRS+=("$1") ;;
+    --copy=*)        COPY_ENTRIES+=("${1#--copy=}") ;;
+    --copy)          shift; [ -n "${1:-}" ] || { echo "ERROR: --copy requires a value"; exit 1; }; COPY_ENTRIES+=("$1") ;;
     --prefix=*)      INSTALL_PREFIX="${1#--prefix=}" ;; # used by install command
     *)               echo "Unknown option: $1"; usage; exit 1 ;;
   esac
   shift
 done
 
-# ── Resolve source directories ───────────────────────────────────────────────
+# ── Resolve repo directories ───────────────────────────────────────────────
 # Only for commands that create sessions (launch, start, run)
 if [[ "$COMMAND" =~ ^(launch|start|run)$ ]]; then
-  # Default to CWD if no --dir flags
-  if [ ${#SOURCE_DIRS[@]} -eq 0 ]; then
-    SOURCE_DIRS=("$ORIGINAL_CWD")
+  # Default to CWD if no --repo flags
+  if [ ${#REPO_DIRS[@]} -eq 0 ]; then
+    REPO_DIRS=("$ORIGINAL_CWD")
   fi
 
   # Resolve to absolute paths and validate
   RESOLVED_DIRS=()
   BASENAMES=()
-  for dir in "${SOURCE_DIRS[@]}"; do
-    # Expand leading ~ to $HOME (shell doesn't expand tilde inside --dir=~/...)
+  for entry in "${REPO_DIRS[@]}"; do
+    # Split on first colon to get path and optional name
+    dir="${entry%%:*}"
+    custom_name="${entry#*:}"
+    # If no colon was found, custom_name equals entry (no override)
+    if [ "$custom_name" = "$entry" ]; then
+      custom_name=""
+    fi
+
+    # Expand leading ~ to $HOME (shell doesn't expand tilde inside --repo=~/...)
     [[ "$dir" == "~/"* ]] && dir="$HOME/${dir#\~/}"
     [[ "$dir" == "~" ]] && dir="$HOME"
     abs_dir="$(cd "$dir" 2>/dev/null && pwd)" || {
@@ -328,25 +346,123 @@ if [[ "$COMMAND" =~ ^(launch|start|run)$ ]]; then
       echo "ERROR: Directory is empty: $abs_dir"
       exit 1
     fi
-    bname=$(basename "$abs_dir")
+
+    # Use custom name if provided, otherwise basename
+    if [ -n "$custom_name" ]; then
+      bname="$custom_name"
+    else
+      bname=$(basename "$abs_dir")
+    fi
+
     # Check for basename collisions
     for existing in "${BASENAMES[@]+"${BASENAMES[@]}"}"; do
       if [ "$existing" = "$bname" ]; then
-        echo "ERROR: Basename collision — two directories named '$bname'."
-        echo "  Rename one of them, or use a parent directory."
+        echo "ERROR: Workspace name collision — two repos named '$bname'."
+        echo "  Use --repo=<path>:<name> to give one a different name."
         exit 1
       fi
     done
     BASENAMES+=("$bname")
     RESOLVED_DIRS+=("${abs_dir}:${bname}")
   done
-  SOURCE_DIRS=("${RESOLVED_DIRS[@]}")
+  REPO_DIRS=("${RESOLVED_DIRS[@]}")
 
-  # Compute DEFAULT_WORKDIR (first dir's basename)
-  first_bname="${SOURCE_DIRS[0]##*:}"
+  # Compute DEFAULT_WORKDIR (first repo's name)
+  first_bname="${REPO_DIRS[0]##*:}"
   DEFAULT_WORKDIR="/workspace/${first_bname}"
   export DEFAULT_WORKDIR
 fi
+
+# ── Parse and validate --copy entries + sandbox.yaml custom_files ────────────
+# Populates RESOLVED_COPIES array with entries: "host_path:container_dest:mode"
+parse_copy_entries() {
+  RESOLVED_COPIES=()
+
+  # Step 1: Read custom_files from sandbox.yaml (if exists)
+  local CONFIG_FILE=""
+  if [ -f "$SCRIPT_DIR/config/sandbox.yaml" ]; then
+    CONFIG_FILE="$SCRIPT_DIR/config/sandbox.yaml"
+  elif [ -f "$SCRIPT_DIR/config/workspace.yaml" ]; then
+    CONFIG_FILE="$SCRIPT_DIR/config/workspace.yaml"
+  fi
+
+  if [ -n "$CONFIG_FILE" ] && command -v yq &>/dev/null; then
+    local FILE_COUNT
+    FILE_COUNT=$(yq '.custom_files | length' "$CONFIG_FILE" 2>/dev/null || echo 0)
+
+    for i in $(seq 0 $((FILE_COUNT - 1))); do
+      local src dest mode
+      src=$(yq ".custom_files[$i].source // \"\"" "$CONFIG_FILE")
+      dest=$(yq ".custom_files[$i].dest // \"\"" "$CONFIG_FILE")
+      mode=$(yq ".custom_files[$i].mode // \"\"" "$CONFIG_FILE")
+
+      if [ -z "$src" ]; then
+        echo "ERROR: custom_files[$i] in sandbox.yaml is missing 'source'"
+        return 1
+      fi
+
+      resolve_copy_entry "$src" "$dest" "$mode" "sandbox.yaml custom_files[$i]" || return 1
+    done
+  fi
+
+  # Step 2: Parse CLI --copy entries (these override sandbox.yaml on collision)
+  for raw in "${COPY_ENTRIES[@]+"${COPY_ENTRIES[@]}"}"; do
+    # Parse colon-delimited: source[:dest][:mode]
+    local src dest mode
+    IFS=':' read -r src dest mode <<< "$raw"
+
+    resolve_copy_entry "$src" "$dest" "$mode" "--copy=$raw" || return 1
+  done
+}
+
+# Resolve a single copy entry: expand paths, validate, append to RESOLVED_COPIES
+# Usage: resolve_copy_entry <source> <dest> <mode> <label>
+resolve_copy_entry() {
+  local src="$1" dest="$2" mode="$3" label="$4"
+
+  # Expand ~ in source
+  [[ "$src" == "~/"* ]] && src="$HOME/${src#\~/}"
+  [[ "$src" == "~" ]] && src="$HOME"
+
+  # Resolve to absolute path
+  if [[ "$src" != /* ]]; then
+    src="$ORIGINAL_CWD/$src"
+  fi
+  # Normalize path (resolve ./ and ../)
+  src="$(cd "$(dirname "$src")" 2>/dev/null && echo "$(pwd)/$(basename "$src")")" || {
+    echo "ERROR: Source path does not exist ($label): $src"
+    return 1
+  }
+
+  # Validate source exists
+  if [ ! -e "$src" ]; then
+    echo "ERROR: Source path does not exist ($label): $src"
+    return 1
+  fi
+
+  # Default mode
+  if [ -z "$mode" ]; then
+    mode="ro"
+  fi
+
+  # Validate mode
+  if [ "$mode" != "ro" ] && [ "$mode" != "rw" ]; then
+    echo "ERROR: Invalid mode '$mode' ($label). Must be 'ro' or 'rw'."
+    return 1
+  fi
+
+  # Resolve destination
+  if [ -z "$dest" ]; then
+    # Default: same path, with $HOME → /home/claude/
+    dest="${src/#$HOME//home/claude}"
+  else
+    # Expand ~ in dest
+    [[ "$dest" == "~/"* ]] && dest="/home/claude/${dest#\~/}"
+    [[ "$dest" == "~" ]] && dest="/home/claude"
+  fi
+
+  RESOLVED_COPIES+=("${src}:${dest}:${mode}")
+}
 
 # ── Helper: check if container exists / is running ──────────────────────────
 container_exists() {
@@ -524,10 +640,75 @@ generate_compose_override() {
   fi
 }
 
-# ── Copy source directories into running container via docker cp ─────────────
-copy_source_dirs() {
-  if [ ${#SOURCE_DIRS[@]} -eq 0 ]; then
-    # No source dirs — signal copy-done immediately so entrypoint proceeds
+# ── Copy custom files/dirs into running container via docker cp ───────────
+copy_custom_files() {
+  if [ ${#RESOLVED_COPIES[@]} -eq 0 ]; then
+    return 0
+  fi
+
+  echo ":: Copying custom files into container..."
+
+  for entry in "${RESOLVED_COPIES[@]}"; do
+    local src dest mode
+    IFS=':' read -r src dest mode <<< "$entry"
+
+    # Create parent directory in container
+    local dest_parent
+    if [ -d "$src" ]; then
+      dest_parent="$dest"
+    else
+      dest_parent="$(dirname "$dest")"
+    fi
+    docker exec "$CONTAINER_NAME" mkdir -p "$dest_parent" || {
+      echo "ERROR: Failed to create directory $dest_parent in container"
+      return 1
+    }
+
+    # Copy file or directory
+    if [ -d "$src" ]; then
+      # Directory copy: create dest dir, copy contents
+      docker exec "$CONTAINER_NAME" mkdir -p "$dest"
+      docker cp "$src/." "$CONTAINER_NAME:$dest" || {
+        echo "ERROR: Failed to copy directory $src to $dest"
+        return 1
+      }
+      echo "  $src/ -> $dest/ ($mode)"
+    else
+      docker cp "$src" "$CONTAINER_NAME:$dest" || {
+        echo "ERROR: Failed to copy file $src to $dest"
+        return 1
+      }
+      echo "  $src -> $dest ($mode)"
+    fi
+  done
+
+  # Fix ownership for all copied files (covers both /workspace/ and /home/claude/ targets)
+  docker exec -u root "$CONTAINER_NAME" chown -R claude:claude /home/claude/ || true
+  if docker exec "$CONTAINER_NAME" test -d /workspace/ 2>/dev/null; then
+    docker exec -u root "$CONTAINER_NAME" chown -R claude:claude /workspace/ || true
+  fi
+
+  # Apply read-only permissions for ro entries
+  for entry in "${RESOLVED_COPIES[@]}"; do
+    local src dest mode
+    IFS=':' read -r src dest mode <<< "$entry"
+    if [ "$mode" = "ro" ]; then
+      docker exec -u root "$CONTAINER_NAME" chmod -R a-w "$dest"
+    fi
+  done
+
+  echo " ✔ Custom files copied"
+}
+
+# ── Copy repos + custom files into running container via docker cp ─────────
+copy_all_to_container() {
+  local HAS_REPOS=false
+  local HAS_COPIES=false
+  [ ${#REPO_DIRS[@]} -gt 0 ] && HAS_REPOS=true
+  [ ${#RESOLVED_COPIES[@]} -gt 0 ] && HAS_COPIES=true
+
+  if [ "$HAS_REPOS" = "false" ] && [ "$HAS_COPIES" = "false" ]; then
+    # Nothing to copy — signal copy-done immediately so entrypoint proceeds
     docker exec "$CONTAINER_NAME" touch /workspace/.claude-session/copy-done 2>/dev/null || true
     return 0
   fi
@@ -550,28 +731,34 @@ copy_source_dirs() {
     return 1
   fi
 
-  echo ":: Copying source directories into container..."
+  # Phase 1: Copy repo directories
+  if [ "$HAS_REPOS" = "true" ]; then
+    echo ":: Copying repo directories into container..."
+    for entry in "${REPO_DIRS[@]}"; do
+      local host_path="${entry%%:*}"
+      local bname="${entry##*:}"
+      # Skip if directory already exists in workspace (restart case)
+      if docker exec "$CONTAINER_NAME" test -d "/workspace/$bname" 2>/dev/null; then
+        echo "  /workspace/$bname already exists, skipping copy"
+        continue
+      fi
+      echo "  Copying $bname to container:/workspace/$bname ..."
+      docker cp "$host_path/." "$CONTAINER_NAME:/workspace/$bname" || {
+        echo "ERROR: Failed to copy $bname"
+        return 1
+      }
+    done
 
-  # docker cp each source directory
-  for entry in "${SOURCE_DIRS[@]}"; do
-    local host_path="${entry%%:*}"
-    local bname="${entry##*:}"
-    # Skip if directory already exists in workspace (restart case)
-    if docker exec "$CONTAINER_NAME" test -d "/workspace/$bname" 2>/dev/null; then
-      echo "  /workspace/$bname already exists, skipping copy"
-      continue
-    fi
-    echo "  Copying $bname to container:/workspace/$bname ..."
-    docker cp "$host_path/." "$CONTAINER_NAME:/workspace/$bname" || {
-      echo "ERROR: Failed to copy $bname"
-      return 1
-    }
-  done
+    # Fix ownership for workspace (docker cp creates files as root)
+    docker exec -u root "$CONTAINER_NAME" chown -R claude:claude /workspace/
+    echo " ✔ Repo directories copied"
+  fi
 
-  # Fix ownership (docker cp creates files as root) and signal completion
-  docker exec -u root "$CONTAINER_NAME" chown -R claude:claude /workspace/
+  # Phase 2: Copy custom files (after repos, so --copy can target /workspace/<repo>/)
+  copy_custom_files || return 1
+
+  # Signal completion to entrypoint
   docker exec "$CONTAINER_NAME" touch /workspace/.claude-session/copy-done
-  echo " ✔ Source directories copied"
 }
 
 # ── Commands ─────────────────────────────────────────────────────────────────
@@ -675,6 +862,7 @@ case "$COMMAND" in
       docker start "$CONTAINER_NAME"
     else
       echo ":: Creating session '$SESSION_NAME'..."
+      parse_copy_entries || exit 1
       generate_compose_override || exit 1
       $COMPOSE up -d
     fi
@@ -694,7 +882,7 @@ case "$COMMAND" in
     echo " ✔ Container ready"
 
     # Copy source directories into container via docker cp
-    copy_source_dirs || exit 1
+    copy_all_to_container || exit 1
 
     # Stream entrypoint output while waiting for setup to complete
     echo ""
@@ -767,12 +955,13 @@ case "$COMMAND" in
       echo ":: Restarting stopped session '$SESSION_NAME'..."
       docker start "$CONTAINER_NAME"
     else
+      parse_copy_entries || exit 1
       generate_compose_override || exit 1
       $COMPOSE up -d
     fi
 
     # Copy source directories into container via docker cp
-    copy_source_dirs || exit 1
+    copy_all_to_container || exit 1
 
     echo ""
     echo "Session '$SESSION_NAME' started."
@@ -836,11 +1025,12 @@ case "$COMMAND" in
     export ONE_SHOT_PROMPT="$PROMPT"
 
     # Start container detached, copy source dirs, then wait for completion
+    parse_copy_entries || exit 1
     generate_compose_override || exit 1
     $COMPOSE up -d
 
     # Copy source directories via docker cp
-    copy_source_dirs || exit 1
+    copy_all_to_container || exit 1
 
     # Stream logs and wait for container to finish (one-shot exits after prompt)
     echo ""
