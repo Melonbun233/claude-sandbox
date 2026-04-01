@@ -2,6 +2,7 @@ services:
   claude-sandbox:
     build: .
     image: claude-sandbox:latest
+    init: true
     container_name: ${CONTAINER_NAME:-claude-sandbox}
     labels:
       com.claude-sandbox.session: "true"
