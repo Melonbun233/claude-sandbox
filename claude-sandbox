@@ -390,6 +390,7 @@ parse_copy_entries() {
     local FILE_COUNT
     FILE_COUNT=$(yq '.custom_files | length' "$CONFIG_FILE" 2>/dev/null || echo 0)
 
+    if [ "$FILE_COUNT" -gt 0 ]; then
     for i in $(seq 0 $((FILE_COUNT - 1))); do
       local src dest mode
       src=$(yq ".custom_files[$i].source // \"\"" "$CONFIG_FILE")
@@ -403,6 +404,7 @@ parse_copy_entries() {
 
       resolve_copy_entry "$src" "$dest" "$mode" "sandbox.yaml custom_files[$i]" || return 1
     done
+    fi
   fi
 
   # Step 2: Parse CLI --copy entries (these override sandbox.yaml on collision)
