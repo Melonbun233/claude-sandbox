@@ -27,10 +27,10 @@ A session name is required for all commands (except build, list, help).
 Commands:
   build                                Build the container image
   install [--prefix=<path>]               Install CLI globally (symlink)
-  launch <name> [--repo=<path>]... [opts]          Start + attach in one step
-  start <name> [--repo=<path>]... [opts]           Start a new session
-  attach <name> [--dangerously-skip-permissions]   Attach to a running session
-  run <name> --prompt=<text> [--repo=<path>]...    Run a one-shot prompt
+  launch <name> [--repo=<path>]... [--copy=<src>]... [opts]  Start + attach in one step
+  start <name> [--repo=<path>]... [--copy=<src>]... [opts]  Start a new session
+  attach <name> [--dangerously-skip-permissions]            Attach to a running session
+  run <name> --prompt=<text> [--repo=<path>]... [--copy=<src>]...  Run a one-shot prompt
   status <name>                        Show session status
   logs <name>                          Tail session output log
   stop <name>                          Stop session (can be restarted later)
