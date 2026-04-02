@@ -7,6 +7,8 @@ Isolated, containerized environment for Claude Code — built for DevOps, develo
 - Docker and Docker Compose
 - Claude Code authenticated on your host machine (`~/.claude.json`)
 - GitHub PAT(s) for your GitHub server(s)
+- `yq` for config parsing (`brew install yq`)
+- `socat` for SSH agent forwarding on macOS (`brew install socat`) — not needed on Linux
 
 ## Quick Start
 
@@ -14,9 +16,9 @@ Isolated, containerized environment for Claude Code — built for DevOps, develo
 # 1. Copy and fill in your environment variables
 cp .env.example .env
 
-# 2. Configure your workspace repos
-cp config/workspace.yaml.example config/workspace.yaml
-# Edit config/workspace.yaml with your repos and GitHub servers
+# 2. Configure your GitHub servers and git options
+cp config/sandbox.yaml.example config/sandbox.yaml
+# Edit config/sandbox.yaml with your GitHub servers
 
 # 3. Build the container
 ./claude-sandbox build
@@ -94,14 +96,18 @@ Each session has its own name, container, and workspace volume. Run as many as y
 
 ### GitHub Servers
 
-Define multiple GitHub servers in `config/workspace.yaml`:
+Define multiple GitHub servers in `config/sandbox.yaml`:
 
 ```yaml
 github_servers:
   - host: github.com
     token_env: GH_TOKEN
-  - host: github.enterprise.sap.com
+    auth_method: https          # default
+  - host: github.enterprise.corp.com
     token_env: GH_ENTERPRISE_TOKEN
+    auth_method: ssh            # requires ssh_agent or mount_ssh
+    user_name: Jane Doe
+    user_email: jane@corp.com
 ```
 
 Token env var names are flexible — use any name, just match it in `.env`:
@@ -113,21 +119,59 @@ GH_ENTERPRISE_TOKEN=ghp_yyy
 
 All variables from `.env` are automatically passed to the container.
 
-### Repos
+### Source Directories
 
-Define repos to clone into the workspace in `config/workspace.yaml`. These are general-purpose repos needed for your tasks — reference documentation, codebases, shared configs, etc. Each repo is cloned to `/workspace/<target>` on session start.
+Source directories are copied into the container via `--repo` flag (no bind mounts — avoids macOS virtiofs overhead):
 
-```yaml
-repos:
-  - url: https://github.com/org/my-service
-    branch: main          # optional: only clone this branch (faster)
-    target: my-service
-
-  - url: https://github.com/org/docs
-    target: docs           # no branch — clones all branches
+```bash
+./claude-sandbox launch my-feature                          # copies current directory
+./claude-sandbox launch my-feature --repo=~/repos/api       # specific directory
+./claude-sandbox launch my-feature --repo=~/repos/api --repo=~/repos/config  # multiple
 ```
 
-The `branch` field is optional. When set, only that branch is cloned (`--single-branch`), saving time and bandwidth. When omitted, the full repo with all branches is cloned. The URL host must match one of the `github_servers` entries for authentication.
+### Git Configuration
+
+Control how the container accesses git via the `git_config` section in `config/sandbox.yaml`:
+
+```yaml
+git_config:
+  ssh_agent: true           # forward host SSH agent socket (recommended for SSH)
+  mount_ssh: true           # mount host ~/.ssh/ read-only (for unencrypted key files)
+  mount_gitconfig: true     # mount host ~/.gitconfig read-only
+```
+
+| Method | Use when |
+|--------|----------|
+| **Agent forwarding** (`ssh_agent: true`) | Passphrase-protected keys, macOS Keychain, hardware tokens |
+| **Key file mounting** (`mount_ssh: true`) | CI runners, headless servers, unencrypted keys |
+
+**macOS note:** Agent forwarding uses a `socat` relay at `~/.claude/ssh-agent.sock` to survive SSH_AUTH_SOCK path rotation after sleep/wake. Requires `socat` (`brew install socat`). The relay restarts automatically on each `start`/`launch`.
+
+See [`docs/SSH-AGENT.md`](docs/SSH-AGENT.md) for detailed setup, platform notes, and troubleshooting.
+
+### Custom File Copy
+
+Copy arbitrary host files/directories into the container:
+
+**CLI flag (ad-hoc, per-session):**
+
+```bash
+./claude-sandbox launch my-feature --copy=~/.aws
+./claude-sandbox launch my-feature --copy=~/.kube/config:/home/claude/.kube/config:rw
+```
+
+**Config (declarative, every session):**
+
+```yaml
+# config/sandbox.yaml
+custom_files:
+  - source: ~/.aws
+  - source: ~/.npmrc
+    dest: /home/claude/.npmrc
+    mode: rw
+```
+
+Format: `--copy=<source>[:<dest>][:<mode>]`. Dest defaults to same path, mode defaults to `ro`.
 
 ### SSL / TLS for GitHub Enterprise
 
@@ -144,7 +188,7 @@ github_servers:
 
 **Option 2: Custom CA certificate**
 
-Place your CA cert in `./certs/` and reference it in `workspace.yaml`:
+Place your CA cert in `./certs/` and reference it in `sandbox.yaml`:
 
 ```yaml
 github_servers:
@@ -193,13 +237,18 @@ ANTHROPIC_API_KEY=sk-ant-xxx
 | Command | Description |
 |---------|-------------|
 | `./claude-sandbox build` | Build the container image |
+| `./claude-sandbox install` | Install CLI globally as `claude-sandbox` |
 | `./claude-sandbox launch <name>` | Start + attach in one step (prompts if session exists) |
 | `./claude-sandbox start <name>` | Start a new session (or restart a stopped one) |
 | `./claude-sandbox attach <name>` | Attach to a running session |
-| `./claude-sandbox run <name> --mode=pr-review --pr=REF` | Run one-shot PR review |
+| `./claude-sandbox run <name> --prompt="<text>"` | Run one-shot prompt |
+| `./claude-sandbox run <name> --pr=REF` | Run PR review |
 | `./claude-sandbox pr-submit <name>` | Post saved review to GitHub |
 | `./claude-sandbox status <name>` | Show session status |
 | `./claude-sandbox logs <name>` | Tail session log |
 | `./claude-sandbox stop <name>` | Stop session (preserves state for restart) |
 | `./claude-sandbox delete <name>` | Permanently remove session and its data |
 | `./claude-sandbox list` | List all sessions |
+| `./claude-sandbox help <command>` | Per-command help |
+
+**Common flags:** `--repo=<path>` (source directory), `--copy=<src>[:<dest>][:<mode>]` (custom file copy), `--rm` (auto-cleanup on exit), `--dangerously-skip-permissions` (skip tool confirmation)
