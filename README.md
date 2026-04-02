@@ -61,22 +61,26 @@ Interactive mode — you attach to the container and use Claude Code directly wi
 
 > **Note:** The `--dangerously-skip-permissions` flag allows Claude to execute tools (shell commands, file writes, etc.) without asking for confirmation each time. The containerized environment provides isolation so these operations are confined to the session's workspace volume and cannot affect your host machine.
 
-### PR Review
+### One-Shot
 
-One-shot mode — reviews a PR and outputs comments.
+Run a prompt in a fresh container. Session auto-removes after completion unless `--keep` is specified.
 
 ```bash
-# Dry-run (default): outputs review to file for you to inspect
-./claude-sandbox run pr-review-123 --mode=pr-review --pr=123
+# Run any prompt
+./claude-sandbox run task1 --prompt="Run tests and fix failures" --repo=~/repos/api
 
-# Auto-post to GitHub:
-./claude-sandbox run pr-review-456 --mode=pr-review --pr=org/repo#456 --no-dry-run
+# Code analysis
+./claude-sandbox run audit --prompt="Find security issues" --repo=~/repos/service
 
-# Post a saved dry-run review:
-./claude-sandbox pr-submit pr-review-123
+# PR review (shorthand for common review workflow)
+./claude-sandbox run pr-123 --pr=123
+./claude-sandbox run pr-456 --pr=org/repo#456 --post    # auto-post review to GitHub
+
+# Keep session for inspection after completion
+./claude-sandbox run task1 --prompt="Refactor auth module" --keep
 ```
 
-> **Note:** One-shot mode automatically uses `--dangerously-skip-permissions` because non-interactive `claude -p` requires it — there is no opt-out. Prefer read-only prompts (PR reviews, code analysis) unless you are comfortable with Claude making unrestricted changes in the container.
+> **Note:** One-shot mode automatically uses `--dangerously-skip-permissions` because non-interactive `claude -p` requires it — there is no opt-out. Prefer read-only prompts (PR reviews, code analysis) unless you are comfortable with Claude making unrestricted changes in the container. Output saved to `output.md`.
 
 ### Multiple Sessions
 
@@ -145,9 +149,32 @@ git_config:
 | **Agent forwarding** (`ssh_agent: true`) | Passphrase-protected keys, macOS Keychain, hardware tokens |
 | **Key file mounting** (`mount_ssh: true`) | CI runners, headless servers, unencrypted keys |
 
-**macOS note:** Agent forwarding uses a `socat` relay at `~/.claude/ssh-agent.sock` to survive SSH_AUTH_SOCK path rotation after sleep/wake. Requires `socat` (`brew install socat`). The relay restarts automatically on each `start`/`launch`.
+**SSH agent setup:**
 
-See [`docs/SSH-AGENT.md`](docs/SSH-AGENT.md) for detailed setup, platform notes, and troubleshooting.
+1. Enable in `config/sandbox.yaml`: set `ssh_agent: true`
+2. Ensure your agent has keys loaded: `ssh-add -l`
+3. Launch a session — the container should see the same keys via `ssh-add -l`
+
+Host keys are auto-populated via `ssh-keyscan` at startup — no manual host key acceptance needed.
+
+| Platform | Notes |
+|----------|-------|
+| **macOS** | Uses `socat` relay at `~/.claude/ssh-agent.sock` to survive sleep/wake socket rotation. Requires `socat` (`brew install socat`). Relay restarts on each `start`/`launch`. |
+| **Linux** | Direct socket mount. Must be accessible by UID 1000 (container's `claude` user). |
+| **Windows** | WSL2 only. Agent must run in the same WSL2 distro as Docker. |
+
+<details>
+<summary>SSH troubleshooting</summary>
+
+| Problem | Solution |
+|---------|----------|
+| "Permission denied" with passphrase key | Use `ssh_agent: true` instead of `mount_ssh: true`. The agent handles passphrase decryption on the host. |
+| SSH_AUTH_SOCK is not set | Start your SSH agent: `eval "$(ssh-agent -s)"` then `ssh-add`. macOS usually auto-starts one. |
+| Agent stops working after macOS sleep/wake | Run `claude-sandbox stop <name>` then `claude-sandbox start <name>` — the relay restarts automatically. |
+| "Bad configuration option: usekeychain" | Your macOS `~/.ssh/config` has macOS-only directives. Use `ssh_agent: true` instead of `mount_ssh: true` to avoid mounting the config. |
+| "socat is required" | Install socat: `brew install socat`. Required on macOS only. |
+
+</details>
 
 ### Custom File Copy
 
@@ -243,7 +270,6 @@ ANTHROPIC_API_KEY=sk-ant-xxx
 | `./claude-sandbox attach <name>` | Attach to a running session |
 | `./claude-sandbox run <name> --prompt="<text>"` | Run one-shot prompt |
 | `./claude-sandbox run <name> --pr=REF` | Run PR review |
-| `./claude-sandbox pr-submit <name>` | Post saved review to GitHub |
 | `./claude-sandbox status <name>` | Show session status |
 | `./claude-sandbox logs <name>` | Tail session log |
 | `./claude-sandbox stop <name>` | Stop session (preserves state for restart) |
