@@ -703,6 +703,10 @@ generate_compose_override() {
       if [ "$CONTAINER_BUILDS" = "true" ]; then
         echo "    security_opt:"
         echo "      - seccomp=unconfined"
+        echo "    cap_add:"
+        echo "      - SYS_ADMIN"
+        echo "      - SETUID"
+        echo "      - SETGID"
         echo "    devices:"
         echo "      - /dev/fuse"
       fi
