@@ -8,7 +8,6 @@ Isolated, containerized environment for Claude Code — built for DevOps, develo
 - Claude Code authenticated on your host machine (`~/.claude.json`)
 - GitHub PAT(s) for your GitHub server(s)
 - `yq` for config parsing (`brew install yq`)
-- `socat` for SSH agent forwarding on macOS (`brew install socat`) — not needed on Linux
 
 ## Quick Start
 
@@ -90,7 +89,7 @@ github_servers:
     auth_method: https          # default
   - host: github.enterprise.corp.com
     token_env: GH_ENTERPRISE_TOKEN
-    auth_method: ssh            # requires ssh_agent or mount_ssh
+    auth_method: ssh            # requires mount_ssh: true
     user_name: Jane Doe
     user_email: jane@corp.com
 ```
@@ -120,40 +119,30 @@ Control how the container accesses git via the `git_config` section in `config/s
 
 ```yaml
 git_config:
-  ssh_agent: true           # forward host SSH agent socket (recommended for SSH)
   mount_ssh: true           # mount host ~/.ssh/ read-only (for unencrypted key files)
   mount_gitconfig: true     # mount host ~/.gitconfig read-only
 ```
 
 | Method | Use when |
 |--------|----------|
-| **Agent forwarding** (`ssh_agent: true`) | Passphrase-protected keys, macOS Keychain, hardware tokens |
-| **Key file mounting** (`mount_ssh: true`) | CI runners, headless servers, unencrypted keys |
+| **HTTPS + PAT** (`auth_method: https`) | Recommended for all servers. Set `token_env` to the name of the env var holding the PAT. |
+| **SSH key files** (`mount_ssh: true`) | CI runners, headless servers with unencrypted SSH keys in `~/.ssh/`. |
 
-**SSH agent setup:**
+**SSH key file setup:**
 
-1. Enable in `config/sandbox.yaml`: set `ssh_agent: true`
-2. Ensure your agent has keys loaded: `ssh-add -l`
-3. Launch a session — the container should see the same keys via `ssh-add -l`
+1. Enable in `config/sandbox.yaml`: set `mount_ssh: true`
+2. Ensure your SSH keys do not require a passphrase (agent forwarding is not supported)
+3. Optionally specify `ssh_key: <filename>` per server to route to a specific key
 
 Host keys are auto-populated via `ssh-keyscan` at startup — no manual host key acceptance needed.
-
-| Platform | Notes |
-|----------|-------|
-| **macOS** | Uses `socat` relay at `~/.claude/ssh-agent.sock` to survive sleep/wake socket rotation. Requires `socat` (`brew install socat`). Relay restarts on each `start`/`launch`. |
-| **Linux** | Direct socket mount. Must be accessible by UID 1000 (container's `claude` user). |
-| **Windows** | WSL2 only. Agent must run in the same WSL2 distro as Docker. |
 
 <details>
 <summary>SSH troubleshooting</summary>
 
 | Problem | Solution |
 |---------|----------|
-| "Permission denied" with passphrase key | Use `ssh_agent: true` instead of `mount_ssh: true`. The agent handles passphrase decryption on the host. |
-| SSH_AUTH_SOCK is not set | Start your SSH agent: `eval "$(ssh-agent -s)"` then `ssh-add`. macOS usually auto-starts one. |
-| Agent stops working after macOS sleep/wake | Run `claude-sandbox stop <name>` then `claude-sandbox start <name>` — the relay restarts automatically. |
-| "Bad configuration option: usekeychain" | Your macOS `~/.ssh/config` has macOS-only directives. Use `ssh_agent: true` instead of `mount_ssh: true` to avoid mounting the config. |
-| "socat is required" | Install socat: `brew install socat`. Required on macOS only. |
+| "Permission denied" with passphrase key | Use `auth_method: https` with a PAT instead. `mount_ssh` only works with unencrypted keys. |
+| "Bad configuration option: usekeychain" | macOS-specific SSH config options are automatically stripped inside the container. If issues persist, use `auth_method: https`. |
 
 </details>
 
