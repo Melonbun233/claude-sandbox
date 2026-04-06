@@ -47,3 +47,17 @@ github_servers:
 #   - source: ./project-tools/lint.sh
 #     dest: /workspace/api/tools/lint.sh
 #     mode: rw
+
+# ── Container Image Building (opt-out) ────────────────────────────────────────
+# Buildah (rootless, daemonless) is enabled by default for building Docker images
+# inside the sandbox. A `docker` shim maps build/push/tag/images/login/rmi to
+# Buildah. Set to false to disable (restores default seccomp, removes /dev/fuse).
+#
+# container_builds: false
+
+# ── Multi-arch Builds ─────────────────────────────────────────────────────────
+# On first session start, you'll be prompted to enable QEMU binfmt handlers for
+# cross-platform builds. If you chose "don't ask again", this is set to false.
+# Run 'claude-sandbox enable-qemu' to re-enable the prompt and register QEMU.
+#
+# qemu_prompt: false

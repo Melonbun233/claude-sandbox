@@ -34,3 +34,24 @@ The [superpowers](https://github.com/obra/superpowers) plugin is installed globa
 - **Verification Before Completion** — ensure quality gates pass
 
 Superpowers skills are invoked automatically during development tasks or via the Skill tool.
+
+## Container Image Building
+
+This sandbox uses Buildah (daemonless, rootless) instead of Docker for building container images.
+A `docker` shim is installed that maps supported commands to Buildah equivalents:
+
+| `docker` command | Actual command | Notes |
+|------------------|---------------|-------|
+| `docker build` | `buildah bud` | Full Dockerfile support |
+| `docker push` | `buildah push` | Push to any OCI registry |
+| `docker tag` | `buildah tag` | |
+| `docker images` | `buildah images` | |
+| `docker login` | `buildah login` | |
+| `docker rmi` | `buildah rmi` | |
+
+**Not available:** `docker run`, `docker compose`, `docker ps`, `docker exec`, and other runtime commands.
+This sandbox is for building and pushing images only — not for running containers.
+
+For multi-arch builds, use: `docker build --platform linux/amd64,linux/arm64 -t myimage .`
+
+For registry auth, use `docker login <registry>` or copy credentials via `--copy=~/.docker/config.json:/home/claude/.config/containers/auth.json`.

@@ -14,6 +14,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         python3 \
         unzip \
         sudo \
+        buildah \
+        skopeo \
+        fuse-overlayfs \
+        fuse3 \
+        uidmap \
     && rm -rf /var/lib/apt/lists/*
 
 # ── GitHub CLI ───────────────────────────────────────────────────────────────
@@ -42,6 +47,10 @@ RUN userdel -r ubuntu 2>/dev/null || true \
     && useradd -m -s /bin/bash -u 1000 claude \
     && echo "claude ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers.d/claude
 
+# ── Rootless Buildah: subordinate UID/GID mappings ────────────────────────
+RUN echo "claude:100000:65536" >> /etc/subuid \
+    && echo "claude:100000:65536" >> /etc/subgid
+
 USER claude
 ENV HOME=/home/claude
 WORKDIR /tmp
@@ -53,7 +62,13 @@ RUN curl -fsSL https://claude.ai/install.sh | bash
 RUN mkdir -p /home/claude/.claude \
              /home/claude/.claude/agents \
              /home/claude/.claude/skills \
-             /home/claude/.claude/plugins
+             /home/claude/.claude/plugins \
+             /home/claude/.config/containers \
+             /home/claude/.local/share/containers
+
+# ── Rootless Buildah: container storage and registry config ───────────────
+COPY --chown=claude:claude containers-config/storage.conf /home/claude/.config/containers/storage.conf
+COPY --chown=claude:claude containers-config/registries.conf /home/claude/.config/containers/registries.conf
 
 # ── superpowers (structured development workflow plugin) ─────────────────────
 RUN git clone https://github.com/obra/superpowers.git /home/claude/.claude/plugins/superpowers \
@@ -68,6 +83,10 @@ COPY --chown=claude:claude claude-config/ /etc/claude-sandbox/claude-config/
 COPY --chown=claude:claude templates/ /etc/claude-sandbox/templates/
 
 RUN chmod +x /scripts/*.sh
+
+# ── Docker shim (maps docker CLI to Buildah) ──────────────────────────────
+COPY --chown=root:root scripts/docker-shim.sh /usr/local/bin/docker
+RUN chmod +x /usr/local/bin/docker
 
 # ── Environment ──────────────────────────────────────────────────────────────
 ENV DISABLE_AUTOUPDATER=1 \

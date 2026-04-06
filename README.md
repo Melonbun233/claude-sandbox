@@ -259,6 +259,67 @@ ANTHROPIC_AUTH_TOKEN=your-token
 ANTHROPIC_API_KEY=sk-ant-xxx
 ```
 
+### Container Image Building
+
+The sandbox includes [Buildah](https://github.com/containers/buildah) for building Docker images without a Docker daemon. A `docker` shim at `/usr/local/bin/docker` maps familiar CLI commands to Buildah equivalents:
+
+| Command | Works | Notes |
+|---------|-------|-------|
+| `docker build` | Yes | Full Dockerfile support via `buildah bud` |
+| `docker push` | Yes | Push to any OCI registry |
+| `docker tag` | Yes | |
+| `docker images` | Yes | |
+| `docker login` | Yes | |
+| `docker rmi` | Yes | |
+| `docker run` | No | Not available — build and push only |
+| `docker compose` | No | Not available |
+
+**Registry authentication:**
+
+```bash
+# Inside the sandbox
+docker login ghcr.io
+
+# Or copy host credentials into the container
+./claude-sandbox launch my-feature --copy=~/.docker/config.json:/home/claude/.config/containers/auth.json
+```
+
+**Disabling container builds:**
+
+Container builds are enabled by default (adds `seccomp=unconfined` and `/dev/fuse` to the container). To disable:
+
+```yaml
+# config/sandbox.yaml
+container_builds: false
+```
+
+This restores the default seccomp profile and removes the `/dev/fuse` device grant.
+
+### Multi-arch Builds
+
+Cross-platform builds (e.g., `linux/amd64` on an arm64 Mac) require QEMU binfmt handlers registered on the host. The sandbox prompts you on first session start:
+
+```
+[e] Enable QEMU multi-arch support now
+[s] Skip for now (ask again next time)
+[d] Don't ask again
+```
+
+You can also enable manually at any time:
+
+```bash
+./claude-sandbox enable-qemu
+```
+
+This runs `docker run --privileged --rm tonistiigi/binfmt --install all` — a one-time host-level change that survives reboots on most setups. Once enabled, use:
+
+```bash
+# Inside the sandbox
+docker build --platform linux/amd64,linux/arm64 -t myimage .
+```
+
+Native-architecture builds work without QEMU.
+
 ## CLI Reference
 
 | Command | Description |
@@ -275,6 +336,7 @@ ANTHROPIC_API_KEY=sk-ant-xxx
 | `./claude-sandbox stop <name>` | Stop session (preserves state for restart) |
 | `./claude-sandbox delete <name>` | Permanently remove session and its data |
 | `./claude-sandbox list` | List all sessions |
+| `./claude-sandbox enable-qemu` | Register QEMU binfmt handlers for multi-arch builds |
 | `./claude-sandbox help <command>` | Per-command help |
 
 **Common flags:** `--repo=<path>` (source directory), `--copy=<src>[:<dest>][:<mode>]` (custom file copy), `--rm` (auto-cleanup on exit), `--dangerously-skip-permissions` (skip tool confirmation)
