@@ -17,9 +17,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         buildah \
         skopeo \
         crun \
-        fuse-overlayfs \
-        fuse3 \
-        uidmap \
     && rm -rf /var/lib/apt/lists/*
 
 # ── GitHub CLI ───────────────────────────────────────────────────────────────
@@ -48,10 +45,6 @@ RUN userdel -r ubuntu 2>/dev/null || true \
     && useradd -m -s /bin/bash -u 1000 claude \
     && echo "claude ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers.d/claude
 
-# ── Rootless Buildah: subordinate UID/GID mappings ────────────────────────
-RUN echo "claude:100000:65536" >> /etc/subuid \
-    && echo "claude:100000:65536" >> /etc/subgid
-
 USER claude
 ENV HOME=/home/claude
 WORKDIR /tmp
@@ -63,16 +56,7 @@ RUN curl -fsSL https://claude.ai/install.sh | bash
 RUN mkdir -p /home/claude/.claude \
              /home/claude/.claude/agents \
              /home/claude/.claude/skills \
-             /home/claude/.claude/plugins \
-             /home/claude/.config/containers \
-             /home/claude/.config/buildah \
-             /home/claude/.local/share/containers
-
-# ── Rootless Buildah: container storage and registry config ───────────────
-COPY --chown=claude:claude containers-config/storage.conf /home/claude/.config/containers/storage.conf
-COPY --chown=claude:claude containers-config/registries.conf /home/claude/.config/containers/registries.conf
-COPY --chown=claude:claude containers-config/containers.conf /home/claude/.config/containers/containers.conf
-COPY --chown=claude:claude containers-config/buildah.conf /home/claude/.config/buildah/buildah.conf
+             /home/claude/.claude/plugins
 
 # ── superpowers (structured development workflow plugin) ─────────────────────
 RUN git clone https://github.com/obra/superpowers.git /home/claude/.claude/plugins/superpowers \
@@ -80,6 +64,13 @@ RUN git clone https://github.com/obra/superpowers.git /home/claude/.claude/plugi
     && ln -s ../hooks/hooks.json /home/claude/.claude/plugins/superpowers/.claude-plugin/hooks.json
 
 USER root
+
+# ── Buildah: system-level container config (runs as root via sudo) ────────
+# Rootless Buildah fails inside containers (newuidmap/newgidmap can't create
+# user namespaces). The docker shim uses sudo, so config goes to /etc/containers/.
+COPY containers-config/storage.conf /etc/containers/storage.conf
+COPY containers-config/registries.conf /etc/containers/registries.conf
+COPY containers-config/containers.conf /etc/containers/containers.conf
 
 # ── Copy scripts and config ─────────────────────────────────────────────────
 COPY --chown=claude:claude scripts/   /scripts/

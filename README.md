@@ -281,12 +281,12 @@ The sandbox includes [Buildah](https://github.com/containers/buildah) for buildi
 docker login ghcr.io
 
 # Or copy host credentials into the container
-./claude-sandbox launch my-feature --copy=~/.docker/config.json:/home/claude/.config/containers/auth.json
+./claude-sandbox launch my-feature --copy=~/.docker/config.json:/run/containers/0/auth.json
 ```
 
 **Disabling container builds:**
 
-Container builds are enabled by default (adds `seccomp=unconfined` and `/dev/fuse` to the container). To disable:
+Container builds are enabled by default (adds `seccomp=unconfined` to the container). To disable:
 
 ```yaml
 # config/sandbox.yaml

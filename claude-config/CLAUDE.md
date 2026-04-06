@@ -54,4 +54,4 @@ This sandbox is for building and pushing images only — not for running contain
 
 For multi-arch builds, use: `docker build --platform linux/amd64,linux/arm64 -t myimage .`
 
-For registry auth, use `docker login <registry>` or copy credentials via `--copy=~/.docker/config.json:/home/claude/.config/containers/auth.json`.
+For registry auth, use `docker login <registry>` or copy credentials via `--copy=~/.docker/config.json:/run/containers/0/auth.json`.
