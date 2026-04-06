@@ -108,7 +108,7 @@ github_servers:
     auth_method: https          # default
   - host: github.enterprise.corp.com
     token_env: GH_ENTERPRISE_TOKEN
-    auth_method: ssh            # requires ssh_agent or mount_ssh
+    auth_method: ssh            # requires mount_ssh: true
     user_name: Jane Doe
     user_email: jane@corp.com
 ```
