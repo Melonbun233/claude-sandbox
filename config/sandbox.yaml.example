@@ -1,8 +1,7 @@
 # ── Git Configuration (optional) ─────────────────────────────────────────────
-# Control how the container accesses git. All options are opt-in.
+# Control how the container accesses git. Both options are opt-in.
 # git_config:
-#   ssh_agent: true           # forward host SSH agent socket (for passphrase-protected keys)
-#   mount_ssh: true           # mount host ~/.ssh/ read-only (for unencrypted key files)
+#   mount_ssh: true           # mount host ~/.ssh/ read-only (for unencrypted SSH key files)
 #   mount_gitconfig: true     # mount host ~/.gitconfig read-only into container
 
 # ── GitHub Servers ────────────────────────────────────────────────────────────
@@ -22,8 +21,7 @@ github_servers:
     # user_email: jane@personal.com
 
   # SSH example for enterprise server:
-  # When using auth_method: ssh, enable either ssh_agent: true (recommended)
-  # or mount_ssh: true in git_config above.
+  # When using auth_method: ssh, enable mount_ssh: true in git_config above.
   # - host: github.enterprise.corp.com
   #   auth_method: ssh
   #   ssh_key: id_ed25519_work   # optional: filename in ~/.ssh/ (requires mount_ssh)
