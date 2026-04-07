@@ -14,6 +14,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         python3 \
         unzip \
         sudo \
+        buildah \
+        skopeo \
+        crun \
     && rm -rf /var/lib/apt/lists/*
 
 # ── GitHub CLI ───────────────────────────────────────────────────────────────
@@ -58,12 +61,23 @@ RUN mkdir -p /home/claude/.claude \
 
 USER root
 
+# ── Buildah: system-level container config (runs as root via sudo) ────────
+# Rootless Buildah fails inside containers (newuidmap/newgidmap can't create
+# user namespaces). The docker shim uses sudo, so config goes to /etc/containers/.
+COPY containers-config/storage.conf /etc/containers/storage.conf
+COPY containers-config/registries.conf /etc/containers/registries.conf
+COPY containers-config/containers.conf /etc/containers/containers.conf
+
 # ── Copy scripts and config ─────────────────────────────────────────────────
 COPY --chown=claude:claude scripts/   /scripts/
 COPY --chown=claude:claude claude-config/ /etc/claude-sandbox/claude-config/
 COPY --chown=claude:claude templates/ /etc/claude-sandbox/templates/
 
 RUN chmod +x /scripts/*.sh
+
+# ── Docker shim (maps docker CLI to Buildah) ──────────────────────────────
+COPY --chown=root:root scripts/docker-shim.sh /usr/local/bin/docker
+RUN chmod +x /usr/local/bin/docker
 
 # ── Environment ──────────────────────────────────────────────────────────────
 ENV DISABLE_AUTOUPDATER=1 \
